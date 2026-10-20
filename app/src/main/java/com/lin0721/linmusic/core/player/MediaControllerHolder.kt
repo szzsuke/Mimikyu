@@ -36,6 +36,8 @@ class MediaControllerHolder(private val context: Context) {
 
     val isPlaying: Boolean get() = controller?.isPlaying ?: false
 
+    val playbackSpeed: Float get() = controller?.playbackParameters?.speed ?: 1.0f
+
     val currentMediaItem: MediaItem? get() = controller?.currentMediaItem
 
     fun isPlayingOrBuffering(): Boolean = isPlaying || playbackState == Player.STATE_BUFFERING

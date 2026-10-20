@@ -25,6 +25,7 @@ class PlaybackProgressTracker(
     private val _updateInterval = MutableStateFlow(25L) // 16–50 ms
     val updateInterval: StateFlow<Long> = _updateInterval.asStateFlow()
 
+    private val clock = LyricsPlaybackClock()
     private var progressJob: Job? = null
     private var onTickCallback: (suspend (positionMs: Long) -> Unit)? = null
 
@@ -34,10 +35,12 @@ class PlaybackProgressTracker(
 
     fun syncImmediatePosition() {
         val curPos = controller.currentPosition
+        clock.reset(curPos)
         _currentPosition.value = curPos
     }
 
     fun setPosition(positionMs: Long) {
+        clock.reset(positionMs)
         _currentPosition.value = positionMs
     }
 
@@ -53,6 +56,7 @@ class PlaybackProgressTracker(
     }
 
     fun resetTo(startPosition: Long, preserveDuration: Boolean = false) {
+        clock.reset(startPosition)
         _currentPosition.value = startPosition
         if (!preserveDuration) {
             _duration.value = 0L
@@ -67,12 +71,23 @@ class PlaybackProgressTracker(
     fun updatePlayingState(isPlaying: Boolean) {
         progressJob?.cancel()
         progressJob = null
+        val curPos = controller.currentPosition
+        clock.reset(curPos)
+        _currentPosition.value = curPos
+
         if (isPlaying && controller.playbackState == Player.STATE_READY) {
             progressJob = scope.launch {
                 while (isActive && controller.isPlaying && controller.playbackState == Player.STATE_READY) {
-                    val curPos = controller.currentPosition
-                    _currentPosition.value = curPos
-                    onTickCallback?.invoke(curPos)
+                    val rawPos = controller.currentPosition
+                    val speed = controller.playbackSpeed
+                    val smoothPos = clock.update(
+                        sourcePositionMs = rawPos,
+                        speed = speed,
+                        isAdvancing = true,
+                        durationMs = _duration.value
+                    )
+                    _currentPosition.value = smoothPos
+                    onTickCallback?.invoke(smoothPos)
                     delay(_updateInterval.value.coerceIn(16L, 50L))
                 }
             }

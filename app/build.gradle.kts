@@ -51,8 +51,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // CI 打 tag 发布时通过 -PreleaseVersionCode/-PreleaseVersionName 覆盖，本地构建保持默认值
-        versionCode = (project.findProperty("releaseVersionCode") as String?)?.toIntOrNull() ?: 3
-        versionName = (project.findProperty("releaseVersionName") as String?) ?: "1.2.0"
+        versionCode = (project.findProperty("releaseVersionCode") as String?)?.toIntOrNull() ?: 4
+        versionName = (project.findProperty("releaseVersionName") as String?) ?: "1.3.0"
 
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
