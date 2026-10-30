@@ -88,39 +88,156 @@ object LyricParser {
 
     private val hexEntityRegex = Regex("""&#x([0-9a-fA-F]+);?""")
     private val decEntityRegex = Regex("""&#([0-9]+);?""")
-    private val brokenContractionRegex = Regex("""\b([a-zA-Z]+)\s*['’]\s*([a-zA-Z]+)\b""")
+    private val brokenContractionRegex1 = Regex("""\b([a-zA-Z]+)\s*['’]\s*([a-zA-Z]+)\b""")
+    private val brokenContractionRegex2 = Regex("""\b([a-zA-Z]+)\s+(['’](?:t|s|d|m|re|ve|ll))\b""", RegexOption.IGNORE_CASE)
+    private val brokenContractionRegex3 = Regex("""\b([a-zA-Z]+)\s+(n['’]t)\b""", RegexOption.IGNORE_CASE)
+    private val brokenContractionRegex4 = Regex("""\b(ca)\s+(n['’]t)\b""", RegexOption.IGNORE_CASE)
+    private val brokenContractionRegex5 = Regex("""\b(wo)\s+(n['’]t)\b""", RegexOption.IGNORE_CASE)
     private val brokenHyphenRegex = Regex("""\b([a-zA-Z]+)-\s+([a-zA-Z]+)\b""")
 
     private val brokenWordGapRegexes = listOf(
-        Regex("""\b([a-zA-Z]{2,}) (ty|ble|tion|sion|ment|ness|ful|less|ly|ing|ed|er|est|en|es)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(to) (gether|day|night|morrow)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(eve) (ry|ryone|rybody|rything)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(every|some|any|no) (body|thing|one|where)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(for) (ever|get|give)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(al) (though|ways|most|ready|right)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(be) (cause|fore|hind|tween|side|lieve|coming)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(in) (to|side|stead)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(out) (side|standing)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(with) (out|in)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(can) (not)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(may) (be)\b""", RegexOption.IGNORE_CASE)
+        // Infantile, repeated & slang syllable words
+        Regex("""\b(ma)\s+(ma)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(pa)\s+(pa)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(da)\s+(da)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(ba)\s+(ba)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(ba)\s+(by|bies|be)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(la)\s+(la)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(na)\s+(na)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(ha)\s+(ha)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(yo)\s+(yo)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(cha)\s+(cha)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(chi)\s+(chi)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(bo)\s+(bo)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(ta)\s+(ta)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(bye)\s+(bye)\b""", RegexOption.IGNORE_CASE),
+
+        // Slang & short forms
+        Regex("""\b(wan)\s+(na)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(gon)\s+(na)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(got)\s+(ta)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(gim)\s+(me)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(lem)\s+(me)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(out)\s+(ta)\b""", RegexOption.IGNORE_CASE),
+
+        // 2-3 syllable common words
+        Regex("""\b(to)\s+(ge)\s+(ther)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(to)\s+(ge)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(ge)\s+(ther)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(to)\s+(gether|day|night|morrow)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(to)\s+(mor)\s+(row)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(to)\s+(mor)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(mor)\s+(row)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(for)\s+(e)\s+(ver)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(for)\s+(e)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(for)\s+(ever|get|give|gotten|getting)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(eve)\s+(ry)\s+(one|body|thing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(eve)\s+(ry)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(eve)\s+(ry|ryone|rybody|rything)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(every|some|any|no)\s+(body|thing|one|where)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(al)\s+(though|ways|most|ready|right)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(be)\s+(cause|fore|hind|tween|side|lieve|coming|come|came|gan|gin|loved|neath|hold)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(in)\s+(to|side|stead)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(out)\s+(side|standing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(with)\s+(out|in)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(can)\s+(not)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(may)\s+(be)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(a)\s+(gain|round|way|lone|bout|bove|live|cross|fraid|head|part|sleep|lright)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(an)\s+(other)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(a)\s+(nother)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(mo)\s+(ther)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(fa)\s+(ther)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(bro)\s+(ther)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(sis)\s+(ter)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(daugh)\s+(ter)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(nev)\s+(er)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(ev)\s+(er)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(o)\s+(ver)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(un)\s+(der|til)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(wa)\s+(ter)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(bet)\s+(ter)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(let)\s+(ter)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(mat)\s+(ter)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(sum)\s+(mer)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(win)\s+(ter)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(cra)\s+(zy)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(la)\s+(dy|dies)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(bo)\s+(dy)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(bod)\s+(y)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(on)\s+(ly)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(rea)\s+(ly)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(real)\s+(ly)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(mu)\s+(sic)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(par)\s+(ty)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(mo)\s+(ney)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(hap)\s+(py)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(sor)\s+(ry)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(fun)\s+(ny)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(sun)\s+(ny)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(sto)\s+(ry)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(glo)\s+(ry)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(ci)\s+(ty)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(beau)\s+(ti)\s+(ful)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(beau)\s+(ti)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(beau)\s+(tiful|ty)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(beauti)\s+(ful)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(won)\s+(der)\s+(ful)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(won)\s+(der)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(won)\s+(derful)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(wonder)\s+(ful)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(hap)\s+(pi)\s+(ness)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(hap)\s+(pi)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(happi)\s+(ness)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(me)\s+(mo)\s+(ry)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(me)\s+(mo)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(com)\s+(pare|pares|pared|paring|plete|pletely|bine|plain)\b""", RegexOption.IGNORE_CASE),
+
+        // Common verb-ing splits
+        Regex("""\b(run)\s+(ning)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(fal|fall)\s+(ling)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(cal|call)\s+(ling)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(tel|tell)\s+(ling)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(fee|feel)\s+(ling)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(lov)\s+(ing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(liv)\s+(ing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(giv)\s+(ing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(wai|wait)\s+(ting|ing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(hol|hold)\s+(ding|ing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(try|dy|cry|fly|say|see|go|know)\s+(ing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(tak|mak|dan|danc|sin|sing|shin|bur|burn|tur|turn|loo|look|star|start|mis|miss|kis|kiss|wi|wish|brea|break|drea|dream|slee|sleep)\s+(ing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(breath)\s+(ing)\b""", RegexOption.IGNORE_CASE),
+
+        // General suffix splits
+        Regex("""\b([a-zA-Z]{2,})\s+(ble|tion|sion|ment|ness|less|ful|able|ible|ity|ous|est|en|es)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b([a-zA-Z]{3,})\s+(ed|er|ly|ty)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b([a-zA-Z]{2,})\s+(ing)\b""", RegexOption.IGNORE_CASE)
     )
 
     fun fixWordGaps(text: String): String {
         var res = text
-        res = brokenContractionRegex.replace(res) { match -> "${match.groupValues[1]}'${match.groupValues[2]}" }
-        res = brokenHyphenRegex.replace(res) { match -> "${match.groupValues[1]}${match.groupValues[2]}" }
-        for (regex in brokenWordGapRegexes) {
-            res = regex.replace(res) { match -> "${match.groupValues[1]}${match.groupValues[2]}" }
+        for (pass in 0 until 3) {
+            val prev = res
+            res = brokenContractionRegex1.replace(res) { match -> "${match.groupValues[1]}'${match.groupValues[2]}" }
+            res = brokenContractionRegex2.replace(res) { match -> "${match.groupValues[1]}${match.groupValues[2]}" }
+            res = brokenContractionRegex3.replace(res) { match -> "${match.groupValues[1]}${match.groupValues[2]}" }
+            res = brokenContractionRegex4.replace(res) { match -> "can't" }
+            res = brokenContractionRegex5.replace(res) { match -> "won't" }
+            res = brokenHyphenRegex.replace(res) { match -> "${match.groupValues[1]}${match.groupValues[2]}" }
+            for (regex in brokenWordGapRegexes) {
+                res = regex.replace(res) { match ->
+                    when (match.groupValues.size) {
+                        4 -> "${match.groupValues[1]}${match.groupValues[2]}${match.groupValues[3]}"
+                        3 -> "${match.groupValues[1]}${match.groupValues[2]}"
+                        else -> match.value
+                    }
+                }
+            }
+            if (res == prev) break
         }
         return res
     }
 
-    private val suffixSyllableRegex = Regex("""^(ty|ble|tion|sion|ment|ness|ful|less|ly|ing|ed|er|est|en|es|s|ity|ous)$""", RegexOption.IGNORE_CASE)
-    private val compoundPrefixRegex = Regex("""^(to|for|al|be|in|out|with|every|some|any|no|can|may)$""", RegexOption.IGNORE_CASE)
-    private val compoundSuffixRegex = Regex("""^(gether|day|night|morrow|ever|get|give|though|ways|most|ready|right|cause|fore|hind|tween|side|lieve|stead|standing|out|in|body|thing|one|where|not|be)$""", RegexOption.IGNORE_CASE)
-    private val stemSyllableRegex = Regex("""^[a-zA-Z]{2,}$""")
-    private val contractionSyllableRegex = Regex("""^['’]([a-zA-Z]+)$""")
+    private val suffixSyllableRegex = Regex("""^(ble|tion|sion|ment|ness|ful|less|ly|ing|ed|er|est|en|es|s|ity|ous|ty|able|ible)$""", RegexOption.IGNORE_CASE)
 
     fun stitchSyllableGaps(words: List<WordInfo>): List<WordInfo> {
         if (words.size <= 1) return words
@@ -128,12 +245,34 @@ object LyricParser {
         for (i in words.indices) {
             val curr = words[i]
             val next = words.getOrNull(i + 1)
-            if (next != null && curr.text.endsWith(" ") &&
-                ((stemSyllableRegex.matches(curr.text.trim()) && suffixSyllableRegex.matches(next.text.trim())) ||
-                 contractionSyllableRegex.matches(next.text.trim()) ||
-                 (compoundPrefixRegex.matches(curr.text.trim()) && compoundSuffixRegex.matches(next.text.trim())))
-            ) {
-                result.add(curr.copy(text = curr.text.trimEnd()))
+            if (next == null) {
+                result.add(curr)
+                continue
+            }
+
+            val currTrimmed = curr.text.trimEnd()
+            val currClean = currTrimmed.removeSuffix("-").trim()
+            val nextClean = next.text.trim()
+
+            if (currClean.isEmpty() || nextClean.isEmpty()) {
+                result.add(curr)
+                continue
+            }
+
+            val hasHyphen = currTrimmed.endsWith("-")
+            val isContraction = nextClean.startsWith("'") || nextClean.startsWith("’") ||
+                                nextClean.equals("n't", ignoreCase = true) || nextClean.equals("n’t", ignoreCase = true)
+            val isSuffix = currClean.length >= 2 && suffixSyllableRegex.matches(nextClean)
+
+            val pairTest = "$currClean $nextClean"
+            val pairFixed = fixWordGaps(pairTest)
+            val isMergedByFixer = !pairFixed.contains(" ") && pairFixed.isNotEmpty()
+
+            val shouldStitch = hasHyphen || isContraction || isSuffix || isMergedByFixer
+
+            if (shouldStitch) {
+                val newText = if (hasHyphen) currClean else currTrimmed
+                result.add(curr.copy(text = newText))
             } else {
                 result.add(curr)
             }
@@ -432,7 +571,7 @@ object LyricParser {
      * \u89e3\u6790\u9177\u72d7 KRC \u683c\u5f0f\u9010\u5b57\u6b4c\u8bcd
      * [lineStartTime,lineDuration]<startOffset,duration,0>word<startOffset,duration,0>word...
      */
-    fun parseKrc(krcText: String, insertGaps: Boolean = true): List<LyricLine> {
+    fun parseKrc(krcText: String, insertGaps: Boolean = false): List<LyricLine> {
         val clean = krcText.removePrefix("\uFEFF")
         val rawLines = clean.lines().mapNotNull { line ->
             val trimmed = line.trim()
@@ -460,14 +599,15 @@ object LyricParser {
                     fullTextBuilder.append(wordText)
                 }
 
-                val fullText = sanitizeLyricText(fullTextBuilder.toString().trim())
+                val stitchedWords = stitchSyllableGaps(wordsList)
+                val fullText = fixWordGaps(fullTextBuilder.toString().trim())
                 if (fullText.isBlank() || isJunkOrCreditLine(fullText, lineStartTime)) return@let null
 
                 LyricLine(
                     timeMs = lineStartTime,
                     durationMs = lineDuration,
                     text = fullText,
-                    words = wordsList
+                    words = stitchedWords
                 )
             }
         }.sortedBy { it.timeMs }
@@ -475,7 +615,7 @@ object LyricParser {
         return if (insertGaps) processLinesWithGaps(rawLines) else rawLines
     }
 
-    fun parseYrc(yrcText: String, insertGaps: Boolean = true): List<LyricLine> {
+    fun parseYrc(yrcText: String, insertGaps: Boolean = false): List<LyricLine> {
         val rawLines = yrcText.lines().mapNotNull { line ->
             val trimmed = line.trim()
             if (trimmed.isEmpty()) return@mapNotNull null
@@ -498,14 +638,15 @@ object LyricParser {
                     fullTextBuilder.append(wordText)
                 }
 
-                val fullText = sanitizeLyricText(fullTextBuilder.toString().trim())
+                val stitchedWords = stitchSyllableGaps(wordsList)
+                val fullText = fixWordGaps(fullTextBuilder.toString().trim())
                 if (fullText.isBlank() || isJunkOrCreditLine(fullText, lineStartTime)) return@let null
 
                 LyricLine(
                     timeMs = lineStartTime,
                     durationMs = lineDuration,
                     text = fullText,
-                    words = wordsList
+                    words = stitchedWords
                 )
             }
         }.sortedBy { it.timeMs }
@@ -515,7 +656,7 @@ object LyricParser {
 
     private val lrcPattern = Regex("""\[(\d{2}):(\d{2})[.:](\d{2,3})](.*)""")
     private val enhancedLrcWordPattern = Regex("""<(\d{2}):(\d{2})[.:](\d{2,3})>""")
-    fun parseLrc(lrcText: String, insertGaps: Boolean = true): List<LyricLine> {
+    fun parseLrc(lrcText: String, insertGaps: Boolean = false): List<LyricLine> {
         var primarySinger: String? = null
         var currentSingerIsOpposite = false
 
@@ -616,13 +757,17 @@ object LyricParser {
 
                     if (cleanWordText.isNotEmpty()) {
                         val startOffset = (wordStartAbs - timeMs).coerceAtLeast(0L)
-                        wordsList.add(WordInfo(cleanWordText, startOffset, wordDuration))
+                        val rawSegment = cleanedContent.substring(wordTextStart, wordTextEnd)
+                        val hasSpace = rawSegment.endsWith(" ") || i < wordMatches.size - 1
+                        val wText = if (hasSpace) "$cleanWordText " else cleanWordText
+                        wordsList.add(WordInfo(wText, startOffset, wordDuration))
                     }
                 }
 
+                val stitchedWords = stitchSyllableGaps(wordsList)
                 val fullText = sanitizeLyricText(cleanBracketVocals(
-                    if (wordsList.isNotEmpty()) {
-                        wordsList.joinToString(" ") { it.text }
+                    if (stitchedWords.isNotEmpty()) {
+                        fixWordGaps(stitchedWords.joinToString("") { it.text }.trim())
                     } else {
                         tagStripRegex.replace(cleanedContent, "").trim()
                     }
@@ -631,15 +776,15 @@ object LyricParser {
                 if (fullText.isEmpty() || isJunkOrCreditLine(fullText, timeMs)) {
                     null
                 } else {
-                    val totalDuration = if (wordsList.isNotEmpty()) {
-                        val lastWord = wordsList.last()
+                    val totalDuration = if (stitchedWords.isNotEmpty()) {
+                        val lastWord = stitchedWords.last()
                         lastWord.startOffsetMs + lastWord.durationMs
                     } else 0L
                     LyricLine(
                         timeMs = timeMs,
                         durationMs = totalDuration,
                         text = fullText,
-                        words = wordsList,
+                        words = stitchedWords,
                         isGap = false,
                         isSynced = true,
                         isOppositeSide = lineIsOpposite

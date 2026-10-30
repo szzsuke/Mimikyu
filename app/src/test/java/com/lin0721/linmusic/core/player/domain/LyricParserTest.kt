@@ -119,6 +119,35 @@ class LyricParserTest {
         assertEquals("security", LyricParser.fixWordGaps("securi ty"))
         assertEquals("possible", LyricParser.fixWordGaps("possi ble"))
         assertEquals("together forever", LyricParser.fixWordGaps("to gether for ever"))
+        assertEquals("mama", LyricParser.fixWordGaps("ma ma"))
+        assertEquals("papa", LyricParser.fixWordGaps("pa pa"))
+        assertEquals("baby", LyricParser.fixWordGaps("ba by"))
+        assertEquals("together", LyricParser.fixWordGaps("to ge ther"))
+        assertEquals("running", LyricParser.fixWordGaps("run ning"))
+        assertEquals("feeling", LyricParser.fixWordGaps("feel ing"))
+        assertEquals("can't breathe", LyricParser.fixWordGaps("can 't breathe"))
+        assertEquals("beautiful lady", LyricParser.fixWordGaps("beau ti ful la dy"))
+    }
+
+    @Test
+    fun `stitchSyllableGaps缝合mama与多音节`() {
+        val words = listOf(
+            WordInfo("ma ", 0L, 200L),
+            WordInfo("ma ", 200L, 300L)
+        )
+        val stitched = LyricParser.stitchSyllableGaps(words)
+        assertEquals("ma", stitched[0].text)
+        assertEquals("ma ", stitched[1].text)
+
+        val words3 = listOf(
+            WordInfo("to ", 0L, 100L),
+            WordInfo("ge ", 100L, 100L),
+            WordInfo("ther ", 200L, 200L)
+        )
+        val stitched3 = LyricParser.stitchSyllableGaps(words3)
+        assertEquals("to", stitched3[0].text)
+        assertEquals("ge", stitched3[1].text)
+        assertEquals("ther ", stitched3[2].text)
     }
 
     @Test

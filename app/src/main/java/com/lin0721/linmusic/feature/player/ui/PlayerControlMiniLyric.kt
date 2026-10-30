@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lin0721.linmusic.core.player.domain.LyricLine
+import com.lin0721.linmusic.core.player.domain.LyricParser
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
@@ -160,21 +161,22 @@ fun MiniLyricLine(
     val currentText = when {
         isPureMusic -> "Instrumental"
         lyrics.isEmpty() -> ""
-        isSinging -> currentLine!!.text
-        currentLine != null && !currentLine.isGap && currentLine.text.isNotBlank() -> currentLine.text
+        isSinging -> LyricParser.fixWordGaps(currentLine!!.text)
+        currentLine != null && !currentLine.isGap && currentLine.text.isNotBlank() -> LyricParser.fixWordGaps(currentLine.text)
         currentLine != null && currentLine.isGap -> {
             val nextLine = lyrics.drop(currentLyricIndex + 1).firstOrNull { !it.isGap && it.text.isNotBlank() }?.text
-            nextLine ?: ""
+            nextLine?.let { LyricParser.fixWordGaps(it) } ?: ""
         }
-        else -> lyrics.firstOrNull { !it.isGap && it.text.isNotBlank() }?.text.orEmpty()
+        else -> lyrics.firstOrNull { !it.isGap && it.text.isNotBlank() }?.text?.let { LyricParser.fixWordGaps(it) }.orEmpty()
     }
 
     val annotatedLyric = remember(currentLine, currentPos, currentText) {
         if (currentText.isBlank()) {
             AnnotatedString("")
         } else if (currentLine != null && currentLine.words.isNotEmpty()) {
+            val stitchedWords = LyricParser.stitchSyllableGaps(currentLine.words)
             buildAnnotatedString {
-                currentLine.words.forEach { word ->
+                stitchedWords.forEach { word ->
                     val isPastOrCurrent = currentPos >= (currentLine.timeMs + word.startOffsetMs)
                     appendStyledLoveWord(
                         builder = this,
@@ -224,13 +226,13 @@ fun MiniLyricLine(
                 indication = null,
                 onClick = onOpenFullScreen
             ),
-        contentAlignment = Alignment.TopEnd
+        contentAlignment = Alignment.TopStart
     ) {
         if (currentText.isNotBlank()) {
             AnimatedContent(
                 targetState = currentText,
                 transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(200)) },
-                contentAlignment = Alignment.TopEnd,
+                contentAlignment = Alignment.TopStart,
                 modifier = Modifier.fillMaxSize(),
                 label = "active_lyric"
             ) { _ ->
@@ -241,7 +243,7 @@ fun MiniLyricLine(
                     fontFamily = SFProFontFamily,
                     fontWeight = FontWeight.SemiBold,
                     lineHeight = 21.sp,
-                    textAlign = TextAlign.End,
+                    textAlign = TextAlign.Start,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     style = LocalTextStyle.current.copy(
@@ -256,7 +258,7 @@ fun MiniLyricLine(
         } else if (isLyricsLoading && lyrics.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.CenterEnd
+                contentAlignment = Alignment.CenterStart
             ) {
                 LoadingDotsAnimation(
                     color = Color.White.copy(alpha = 0.4f),
