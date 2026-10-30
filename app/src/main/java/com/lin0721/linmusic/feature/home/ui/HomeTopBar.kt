@@ -3,15 +3,18 @@ package com.lin0721.linmusic.feature.home.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -44,17 +47,17 @@ import com.lin0721.linmusic.core.ui.theme.RobotoFontFamily
 import com.lin0721.linmusic.core.ui.theme.PillRadius
 import com.lin0721.linmusic.core.ui.theme.PressStyle
 
-// /Liked Songs/ of （ and ）
 @Composable
 fun HomeSharedHeader(
     userProfile: UserProfile? = null,
-    selectedTab: Int,
-    onTabSelected: (Int) -> Unit,
+    selectedTab: Int = 0,
+    onTabSelected: (Int) -> Unit = {},
     secondarySelected: Boolean = false,
     onSecondarySelected: () -> Unit = {},
     showFilterPills: Boolean = true,
     backgroundColor: Color = MaterialTheme.colorScheme.background,
-    onAvatarClick: () -> Unit = {}
+    onAvatarClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -66,7 +69,7 @@ fun HomeSharedHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = MimikyuSpacing.sm, bottom = 6.dp),
+                .padding(top = 7.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showFilterPills) {
@@ -83,6 +86,8 @@ fun HomeSharedHeader(
     }
 }
 
+
+
 private val PillShapeFull = RoundedCornerShape(PillRadius)
 
 // ：All / Liked Songs / Discover / Trending / Charts / Podcasts
@@ -95,7 +100,7 @@ fun FilterPills(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp)
 ) {
-    val labels = remember { listOf("All", "Liked Songs", "Discover") }
+    val labels = remember { listOf("All", "Discover", "Local Music") }
 
     LazyRow(
         modifier = modifier,
@@ -128,24 +133,24 @@ private fun FilterPillChip(
     modifier: Modifier = Modifier
 ) {
     val targetBackground = if (selected) activeColor else inactiveColor
-    val targetContent = if (selected) Color.Black else Color.White
+    val targetContent = if (selected) Color.Black else com.lin0721.linmusic.core.ui.theme.MimikyuSilver
     val animatedBackground by animateColorAsState(targetValue = targetBackground, label = "pillBackground")
     val animatedContent by animateColorAsState(targetValue = targetContent, label = "pillContent")
     val backgroundColor = if (animateColors) animatedBackground else targetBackground
     val contentColor = if (animateColors) animatedContent else targetContent
     Box(
         modifier = modifier
-            .height(36.dp)
+            .height(32.dp)
             .pressable(pressStyle, onClick = onClick)
             .clip(shape)
             .background(backgroundColor)
-            .padding(horizontal = 18.dp),
+            .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
             color = contentColor,
-            fontSize = 13.5.sp,
+            fontSize = 12.5.sp,
             fontFamily = RobotoFontFamily,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
         )

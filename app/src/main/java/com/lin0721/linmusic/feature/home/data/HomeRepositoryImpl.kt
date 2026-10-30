@@ -8,6 +8,7 @@ import com.lin0721.linmusic.core.reccobeats.ReccoBeatsRepository
 import com.lin0721.linmusic.core.auth.UserPreferences
 import com.lin0721.linmusic.core.log.AppLogger
 import com.lin0721.linmusic.core.metadata.cleanMetadataText
+import com.lin0721.linmusic.core.metadata.toTrack
 import com.lin0721.linmusic.core.model.Album
 import com.lin0721.linmusic.core.model.Artist
 import com.lin0721.linmusic.core.model.Track
@@ -50,13 +51,219 @@ class HomeRepositoryImpl(
     private val lastFmRepository: LastFmRepository? = null,
     private val firestorePlaylistManager: com.lin0721.linmusic.core.firebase.FirestorePlaylistManager? = null,
     private val reccoBeatsRepository: ReccoBeatsRepository? = null,
-    private val metadataEnricher: com.lin0721.linmusic.core.metadata.MetadataEnricher? = null
+    private val metadataEnricher: com.lin0721.linmusic.core.metadata.MetadataEnricher? = null,
+    private val auroraApiClient: com.lin0721.linmusic.core.aurora.AuroraApiClient? = null,
+    private val searchRepository: com.lin0721.linmusic.feature.search.data.SearchRepository? = null
 ) : HomeRepository {
 
     override fun getHomeBlockPage(refresh: Boolean, cursor: String): Flow<Result<HomeBlockPage>> = flow {
-        val continuation = cursor.takeIf { it.isNotBlank() }
+        val shelves = if (isYouTubeMusicConnected()) {
+            val ytmShelves = runCatching { fetchYouTubeMusicHomeShelves() }.getOrNull()
+            if (!ytmShelves.isNullOrEmpty()) ytmShelves else fetchCuratedDiscoverShelves()
+        } else {
+            fetchCuratedDiscoverShelves()
+        }
+        emit(Result.success(HomeBlockPage(shelves = shelves, nextCursor = null, hasMore = false)))
+    }.catch { e ->
+        AppLogger.w(TAG, "getHomeBlockPage failed", e)
+        emit(Result.success(HomeBlockPage(shelves = fetchCuratedDiscoverShelves(), nextCursor = null, hasMore = false)))
+    }
 
+    private suspend fun isYouTubeMusicConnected(): Boolean {
+        val memCookie = YouTube.cookie
+        if (!memCookie.isNullOrBlank() && (memCookie.contains("SAPISID") || memCookie.contains("__Secure-") || memCookie.contains("HSID") || memCookie.contains("SSID"))) {
+            return true
+        }
+        val storedCookie = userPreferences?.cookies?.firstOrNull()
+        if (!storedCookie.isNullOrBlank() && (storedCookie.contains("SAPISID") || storedCookie.contains("__Secure-") || storedCookie.contains("HSID") || storedCookie.contains("SSID"))) {
+            YouTube.cookie = storedCookie
+            YouTube.useLoginForBrowse = true
+            return true
+        }
+        return false
+    }
+
+    private suspend fun fetchYouTubeMusicHomeShelves(): List<HomeShelf> = withContext(Dispatchers.IO) {
+        val homeResult = YouTube.home().getOrNull()
+        if (homeResult == null || homeResult.sections.isEmpty()) {
+            AppLogger.w(TAG, "YouTube.home() returned empty or failed, falling back to curated shelves")
+            return@withContext fetchCuratedDiscoverShelves()
+        }
+
+        val ytmShelves = homeResult.sections.mapIndexedNotNull { index, section ->
+            val title = cleanMetadataText(section.title).trim()
+            if (title.isBlank()) return@mapIndexedNotNull null
+
+            val cards = section.items.mapNotNull { it.toHomeCard() }
+            if (cards.isEmpty()) return@mapIndexedNotNull null
+
+            HomeShelf(
+                blockCode = "ytm_${title.hashCode()}_$index",
+                title = title,
+                cards = cards
+            )
+        }
+
+        if (ytmShelves.isNotEmpty()) {
+            AppLogger.d(TAG, "Loaded ${ytmShelves.size} personalized YouTube Music shelves for home feed")
+            ytmShelves
+        } else {
+            fetchCuratedDiscoverShelves()
+        }
+    }
+
+
+    private fun PlaylistItem.toCuratedPlaylistCard(): HomeCard.Playlist? {
+        val cleanTitle = cleanMetadataText(title)
+        if (cleanTitle.isBlank()) return null
+        val subtitleArtists = description?.takeIf { !it.equals("YouTube Music", ignoreCase = true) }
+            ?: author?.name?.takeIf { !it.equals("YouTube Music", ignoreCase = true) }
+        val cleanAuthor = cleanMetadataText(subtitleArtists ?: "")
+        val playlistId = YouTubeIdRegistry.registerPlaylist(id)
+        val ytCover = com.lin0721.linmusic.core.metadata.YouTubeThumbnailUpscaler.upscale(thumbnail) ?: thumbnail ?: ""
+        val isDailyMix = cleanTitle.contains("Daily Mix", ignoreCase = true)
+        val isGenreMix = cleanTitle.endsWith("Mix", ignoreCase = true) || cleanTitle.contains("Vibe", ignoreCase = true)
+        val count = Regex("""\d+""").find(songCountText ?: "")?.value?.toIntOrNull()
+            ?: if (isDailyMix) 50 else if (isGenreMix) 50 else 50
+        return HomeCard.Playlist(
+            id = playlistId,
+            title = cleanTitle,
+            caption = cleanAuthor.ifBlank { "Curated Playlist" },
+            coverUrl = ytCover,
+            trackCount = count,
+            isDailyMix = isDailyMix,
+            isGenreMix = isGenreMix
+        )
+    }
+
+    private fun getFallbackCuratedCards(blockCode: String): List<HomeCard.Playlist> {
+        fun makeCard(title: String, subtitle: String, coverUrl: String, count: Int = 50): HomeCard.Playlist {
+            val plId = YouTubeIdRegistry.registerPlaylist("seed_${blockCode}_${title.hashCode()}")
+            return HomeCard.Playlist(
+                id = plId,
+                title = title,
+                caption = subtitle,
+                coverUrl = coverUrl,
+                trackCount = count
+            )
+        }
+        return when (blockCode) {
+            "made_for_you" -> listOf(
+                makeCard("Ultimate Love Songs", "Curated • Romantic Anthems", "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/94/d4/24/94d42473-eb0e-229b-dd84-900a1874a91d/093624931980.jpg/300x300bb.jpg"),
+                makeCard("Punjabi Hip Hop Hits", "Shubh & Global Artists", "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/18/75/d5/1875d587-3892-c732-8edb-e864c5a53b5b/21UMGIM11942.rgb.jpg/300x300bb.jpg"),
+                makeCard("'90s Pop-Rock Hits", "Goo Goo Dolls & More", "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/62/93/13/6293132e-20ff-67ab-3d1f-96bb6797a6ba/196589564955.jpg/300x300bb.jpg"),
+                makeCard("Naija Gospel Hits 2024", "Top Inspiring Anthems", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/22/32/f5/2232f592-b812-ee38-2ceb-3c23e43c7ddd/663918276136.jpg/300x300bb.jpg"),
+                makeCard("Presenting Adrian Khalif", "Featured Hits & Singles", "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/18/c3/ea/18c3eaae-229c-c529-634c-d6219e161ccb/5059805957458_cover.jpg/300x300bb.jpg")
+            )
+            "new_releases" -> listOf(
+                makeCard("Bollywood Party", "Kartik Aaryan, Kriti Sanon", "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/18/75/d5/1875d587-3892-c732-8edb-e864c5a53b5b/21UMGIM11942.rgb.jpg/300x300bb.jpg"),
+                makeCard("Amapiano Hits 2025", "Latest Club & Dance Cuts", "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/94/d4/24/94d42473-eb0e-229b-dd84-900a1874a91d/093624931980.jpg/300x300bb.jpg"),
+                makeCard("Telugu Hits 2024", "NTR, Janhvi Kapoor & More", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/d2/01/73/d20173bb-3589-407f-2d57-0ed80ec9c380/7954.jpg/300x300bb.jpg"),
+                makeCard("Afro House 2026", "Francis Mercier & Global Beats", "https://is1-ssl.mzstatic.com/image/thumb/Features124/v4/b2/3b/7d/b23b7d36-c61d-d207-a3bd-670466ed9dd1/dj.fcmnjull.jpg/300x300bb.jpg"),
+                makeCard("Today's Country", "Morgan Wallen & Chart Toppers", "https://is1-ssl.mzstatic.com/image/thumb/Music113/v4/4f/84/1b/4f841b0a-ac93-1275-f6b1-659fd4c8a202/13ABKIM00042.rgb.jpg/300x300bb.jpg")
+            )
+            "mimikyu_classics" -> listOf(
+                makeCard("Classical for Reading", "Quiet Cello & Violin Sonatas", "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/62/93/13/6293132e-20ff-67ab-3d1f-96bb6797a6ba/196589564955.jpg/300x300bb.jpg"),
+                makeCard("Timeless Classics", "Vinyl Gold & Evergreen Melodies", "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/e9/71/2b/e9712b92-56c5-e767-cd99-f4e9dff4dd3d/5063113338182_cover.jpg/300x300bb.jpg"),
+                makeCard("Classical for Working", "Focus & Ambient Masterpieces", "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/94/d4/24/94d42473-eb0e-229b-dd84-900a1874a91d/093624931980.jpg/300x300bb.jpg"),
+                makeCard("Classic Rock's Greatest Hits", "The Rolling Stones & Icons", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/22/32/f5/2232f592-b812-ee38-2ceb-3c23e43c7ddd/663918276136.jpg/300x300bb.jpg"),
+                makeCard("Rock Anthems", "Queen, Led Zeppelin & Legends", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/d2/01/73/d20173bb-3589-407f-2d57-0ed80ec9c380/7954.jpg/300x300bb.jpg")
+            )
+            "charts" -> listOf(
+                makeCard("Pop's Biggest Hits", "Taylor Swift & Global #1s", "https://is1-ssl.mzstatic.com/image/thumb/Features124/v4/b2/3b/7d/b23b7d36-c61d-d207-a3bd-670466ed9dd1/dj.fcmnjull.jpg/300x300bb.jpg"),
+                makeCard("Ultimate '00s Party", "Lady Gaga & Dance Classics", "https://is1-ssl.mzstatic.com/image/thumb/Music113/v4/4f/84/1b/4f841b0a-ac93-1275-f6b1-659fd4c8a202/13ABKIM00042.rgb.jpg/300x300bb.jpg"),
+                makeCard("House Music 2026", "Cloonee, Fisher & Tech House", "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/18/c3/ea/18c3eaae-229c-c529-634c-d6219e161ccb/5059805957458_cover.jpg/300x300bb.jpg"),
+                makeCard("Summer Dance Classics", "Feel-Good Beach Anthems", "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/e9/71/2b/e9712b92-56c5-e767-cd99-f4e9dff4dd3d/5063113338182_cover.jpg/300x300bb.jpg"),
+                makeCard("Hits of 2016", "Bruno Mars, Chainsmokers & More", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/22/32/f5/2232f592-b812-ee38-2ceb-3c23e43c7ddd/663918276136.jpg/300x300bb.jpg")
+            )
+            "trending" -> listOf(
+                makeCard("Haryanvi Pop", "Top Regional Chartbusters", "https://is1-ssl.mzstatic.com/image/thumb/Music113/v4/4f/84/1b/4f841b0a-ac93-1275-f6b1-659fd4c8a202/13ABKIM00042.rgb.jpg/300x300bb.jpg"),
+                makeCard("Morya Re", "Hrithik Roshan & Festive Beats", "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/18/75/d5/1875d587-3892-c732-8edb-e864c5a53b5b/21UMGIM11942.rgb.jpg/300x300bb.jpg"),
+                makeCard("Om Namah Shivaye: Hindi", "Spiritual Devotional Classics", "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/62/93/13/6293132e-20ff-67ab-3d1f-96bb6797a6ba/196589564955.jpg/300x300bb.jpg"),
+                makeCard("Jai Shri Ganapathi", "Devotional Hits & Aartis", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/22/32/f5/2232f592-b812-ee38-2ceb-3c23e43c7ddd/663918276136.jpg/300x300bb.jpg"),
+                makeCard("Punjabi Dance Hits", "Wedding & Bhangra Anthems", "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/94/d4/24/94d42473-eb0e-229b-dd84-900a1874a91d/093624931980.jpg/300x300bb.jpg")
+            )
+            "discover" -> listOf(
+                makeCard("EVANGELION SERIES", "Official Anime Soundtrack", "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/18/c3/ea/18c3eaae-229c-c529-634c-d6219e161ccb/5059805957458_cover.jpg/300x300bb.jpg"),
+                makeCard("Sunshine Americana", "Road Trip Folk & Acoustic", "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/94/d4/24/94d42473-eb0e-229b-dd84-900a1874a91d/093624931980.jpg/300x300bb.jpg"),
+                makeCard("Peaceful Singer-Songwriter", "Michael Kiwanuka & Soul", "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/62/93/13/6293132e-20ff-67ab-3d1f-96bb6797a6ba/196589564955.jpg/300x300bb.jpg"),
+                makeCard("On Everything: Today's Hip-Hop Hits", "Yung Miami & Trap Hits", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/22/32/f5/2232f592-b812-ee38-2ceb-3c23e43c7ddd/663918276136.jpg/300x300bb.jpg"),
+                makeCard("FINAL FANTASY Series", "Legendary Video Game Orchestras", "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/e9/71/2b/e9712b92-56c5-e767-cd99-f4e9dff4dd3d/5063113338182_cover.jpg/300x300bb.jpg")
+            )
+            "mimikyu_singles" -> listOf(
+                makeCard("Heartbreak R&B", "Emotional Slow Jams", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/d2/01/73/d20173bb-3589-407f-2d57-0ed80ec9c380/7954.jpg/300x300bb.jpg"),
+                makeCard("'80s Rock Ballads", "Power Ballads & Guitars", "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/62/93/13/6293132e-20ff-67ab-3d1f-96bb6797a6ba/196589564955.jpg/300x300bb.jpg"),
+                makeCard("Kollywood Kuthu", "Energetic South Indian Beats", "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/18/75/d5/1875d587-3892-c732-8edb-e864c5a53b5b/21UMGIM11942.rgb.jpg/300x300bb.jpg"),
+                makeCard("'90s Sing-Alongs", "Nostalgic Pop & Sing-Alongs", "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/18/c3/ea/18c3eaae-229c-c529-634c-d6219e161ccb/5059805957458_cover.jpg/300x300bb.jpg"),
+                makeCard("Amapiano Hits 2025", "Global South African Groove", "https://is1-ssl.mzstatic.com/image/thumb/Features124/v4/b2/3b/7d/b23b7d36-c61d-d207-a3bd-670466ed9dd1/dj.fcmnjull.jpg/300x300bb.jpg")
+            )
+            "decades" -> listOf(
+                makeCard("Presenting Logic", "Logic's Career Definitive Collection", "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/e9/71/2b/e9712b92-56c5-e767-cd99-f4e9dff4dd3d/5063113338182_cover.jpg/300x300bb.jpg"),
+                makeCard("The Hits: '00s", "Rihanna, Beyoncé & 2000s Pop", "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/94/d4/24/94d42473-eb0e-229b-dd84-900a1874a91d/093624931980.jpg/300x300bb.jpg"),
+                makeCard("Hip Hop and R&B Essentials", "Mariah Carey & Kendrick Lamar", "https://is1-ssl.mzstatic.com/image/thumb/Music113/v4/4f/84/1b/4f841b0a-ac93-1275-f6b1-659fd4c8a202/13ABKIM00042.rgb.jpg/300x300bb.jpg"),
+                makeCard("Huge House Anthems", "Festival Stage & Club Euphoria", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/22/32/f5/2232f592-b812-ee38-2ceb-3c23e43c7ddd/663918276136.jpg/300x300bb.jpg"),
+                makeCard("Presenting Division", "Essential Hip Hop & R&B Tracks", "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/d2/01/73/d20173bb-3589-407f-2d57-0ed80ec9c380/7954.jpg/300x300bb.jpg")
+            )
+            else -> emptyList()
+        }
+    }
+
+    private suspend fun fetchCuratedDiscoverShelves(): List<HomeShelf> = coroutineScope {
+        data class ShelfCategory(val blockCode: String, val title: String, val tag: String)
+        val categories = listOf(
+            ShelfCategory("made_for_you", "Made For You", "Made For You"),
+            ShelfCategory("new_releases", "New Releases", "New Releases"),
+            ShelfCategory("mimikyu_classics", "Mimikyu Classics", "Classics"),
+            ShelfCategory("charts", "Charts", "Charts"),
+            ShelfCategory("trending", "Trending", "Trending"),
+            ShelfCategory("discover", "Discover", "Discover"),
+            ShelfCategory("mimikyu_singles", "Mimikyu Singles", "Singles"),
+            ShelfCategory("decades", "Decades", "Decades")
+        )
+
+        val deferredList = categories.map { cat ->
+            async {
+                val cards = runCatching {
+                    // 1. First fetch using the exact same Discover repository pipeline
+                    val page = searchRepository?.getPlaylistsByCategory(cat.tag, cursor = 0, limit = 20)?.firstOrNull()?.getOrNull()
+                    val playlists = page?.playlists.orEmpty()
+                    if (playlists.isNotEmpty()) {
+                        playlists.map { pl ->
+                            HomeCard.Playlist(
+                                id = pl.id,
+                                title = pl.name,
+                                caption = pl.description?.ifBlank { "Curated Playlist" } ?: "Curated Playlist",
+                                coverUrl = pl.coverImgUrl,
+                                trackCount = pl.trackCount
+                            )
+                        }
+                    } else {
+                        // 2. Direct InnerTube search with the exact category tag
+                        val searchRes = YouTube.search("${cat.tag} playlist", YouTube.SearchFilter.FILTER_FEATURED_PLAYLIST).getOrNull()
+                            ?: YouTube.search("${cat.tag} playlist", YouTube.SearchFilter.FILTER_COMMUNITY_PLAYLIST).getOrNull()
+                        val items = searchRes?.items?.filterIsInstance<PlaylistItem>().orEmpty()
+                        val curated = items.filter {
+                            com.lin0721.linmusic.core.contentfilter.CuratedArtists.isPlaylistOrAlbumCurated(it.title, it.author?.name)
+                        }.ifEmpty { items }
+                        curated.mapNotNull { it.toCuratedPlaylistCard() }.take(12)
+                    }
+                }.getOrDefault(emptyList())
+
+                HomeShelf(
+                    blockCode = cat.blockCode,
+                    title = cat.title,
+                    cards = if (cards.isNotEmpty()) cards else getFallbackCuratedCards(cat.blockCode)
+                )
+            }
+        }
+
+        deferredList.map { it.await() }
+    }
+
+    private suspend fun legacyShelves(cursor: String): List<HomeShelf> {
+        val continuation = cursor.takeIf { it.isNotBlank() }
         val allShelves = if (continuation == null) {
+
             coroutineScope {
                 val likedTracks = userPreferences?.likedTracks?.firstOrNull() ?: emptyList()
                 val recentRecords = userPreferences?.recentRecords?.firstOrNull() ?: emptyList()
@@ -93,6 +300,14 @@ class HomeRepositoryImpl(
                 val lastFmSimilarArtists = if (topArtist != null && lastFmRepository != null) {
                     runCatching { lastFmRepository.getSimilarArtists(topArtist, limit = 6) }.getOrDefault(emptyList())
                 } else emptyList()
+
+                val catalogHomeDeferred = if (auroraApiClient != null) {
+                    async {
+                        withTimeoutOrNull(4500L) {
+                            runCatching { auroraApiClient.getHome() }.getOrNull()
+                        }
+                    }
+                } else null
 
                 val exploreDeferred = async {
                     withTimeoutOrNull(4500L) {
@@ -282,8 +497,72 @@ class HomeRepositoryImpl(
 
                 val orderedShelves = mutableListOf<HomeShelf>()
 
-                // ── 1. YouTube Mixes (Mimikyu wireframe Mix styling) ──
-                if (mixCards.isNotEmpty()) {
+                // ── PRIMARY: Aurora Curated & Recommended Home Shelves ──
+                val catalogHome = catalogHomeDeferred?.await()
+                if (catalogHome != null && catalogHome.sections.isNotEmpty()) {
+                    for ((index, section) in catalogHome.sections.withIndex()) {
+                        val cards = section.items.mapNotNull { item ->
+                            val cleanTitle = cleanMetadataText(item.title)
+                            val cover = item.artworkUrl ?: ""
+                            when {
+                                item.type.equals("Playlist", ignoreCase = true) || item.uri?.contains("playlist") == true -> {
+                                    val pId = YouTubeIdRegistry.registerPlaylist(item.identifier ?: item.title)
+                                    HomeCard.Playlist(
+                                        id = pId,
+                                        title = cleanTitle,
+                                        caption = "Curated",
+                                        coverUrl = cover,
+                                        trackCount = 50,
+                                        isDailyMix = cleanTitle.contains("Daily Mix", ignoreCase = true),
+                                        isGenreMix = cleanTitle.endsWith("Mix", ignoreCase = true) || cleanTitle.contains("Hits", ignoreCase = true)
+                                    )
+                                }
+                                item.type.equals("Album", ignoreCase = true) || item.uri?.contains("album") == true -> {
+                                    val aId = YouTubeIdRegistry.registerAlbum(item.identifier ?: item.title)
+                                    HomeCard.Album(
+                                        id = aId,
+                                        title = cleanTitle,
+                                        caption = "Album",
+                                        coverUrl = cover,
+                                        year = null
+                                    )
+                                }
+                                item.type.equals("Track", ignoreCase = true) || item.uri?.contains("track") == true -> {
+                                    val t = YouTubeIdRegistry.registerPlaceholder(cleanTitle, "Featured")
+                                    HomeCard.Song(
+                                        id = t.id,
+                                        title = cleanTitle,
+                                        caption = "Track",
+                                        coverUrl = cover
+                                    )
+                                }
+                                else -> {
+                                    val pId = YouTubeIdRegistry.registerPlaylist(item.identifier ?: item.title)
+                                    HomeCard.Playlist(
+                                        id = pId,
+                                        title = cleanTitle,
+                                        caption = "Featured",
+                                        coverUrl = cover,
+                                        trackCount = 50
+                                    )
+                                }
+                            }
+                        }
+                        if (cards.isNotEmpty()) {
+                            orderedShelves.add(
+                                HomeShelf(
+                                    blockCode = "SECTION_CATALOG_${index}",
+                                    title = section.title,
+                                    showRank = false,
+                                    cards = cards
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // ── FALLBACK / SUPPLEMENTAL: YouTube Mixes (Mimikyu wireframe Mix styling) ──
+                if (orderedShelves.none { it.blockCode.startsWith("SECTION_CATALOG_") } && mixCards.isNotEmpty()) {
                     orderedShelves.add(
                         HomeShelf(
                             blockCode = "SECTION_MIXES_FOR_YOU",
@@ -406,12 +685,9 @@ class HomeRepositoryImpl(
         } else {
             emptyList()
         }
-
-        emit(Result.success(HomeBlockPage(shelves = allShelves, nextCursor = continuation, hasMore = continuation != null)))
-    }.catch { e ->
-        AppLogger.e(TAG, "Error fetching YouTube Music home shelves", e)
-        emit(Result.failure(mapToAppError(e)))
+        return allShelves
     }
+
 
     override fun getPersonalizedPlaylists(): Flow<Result<PersonalizedData>> = flow {
         emit(Result.success(PersonalizedData()))
@@ -521,12 +797,13 @@ class HomeRepositoryImpl(
                 val cleanTitle = cleanMetadataText(title)
                 val cleanArtist = cleanMetadataText(artists?.joinToString(", ") { cleanMetadataText(it.name) } ?: "")
                 val albumId = YouTubeIdRegistry.registerAlbum(browseId)
+                val ytCover = com.lin0721.linmusic.core.metadata.YouTubeThumbnailUpscaler.upscale(thumbnail) ?: thumbnail
 
                 HomeCard.Album(
                     id = albumId,
                     title = cleanTitle,
                     caption = cleanArtist.ifBlank { year?.toString() ?: "" },
-                    coverUrl = thumbnail
+                    coverUrl = ytCover
                 )
             }
             is PlaylistItem -> {
@@ -540,6 +817,17 @@ class HomeRepositoryImpl(
                     id = playlistId,
                     title = cleanTitle,
                     caption = cleanAuthor.ifBlank { "Featured Artists" },
+                    coverUrl = ytCover
+                )
+            }
+            is com.metrolist.innertube.models.ArtistItem -> {
+                val cleanName = cleanMetadataText(title)
+                val aId = YouTubeIdRegistry.registerArtist(id, cleanName)
+                val ytCover = com.lin0721.linmusic.core.metadata.YouTubeThumbnailUpscaler.upscale(thumbnail) ?: thumbnail ?: ""
+                HomeCard.Album(
+                    id = aId,
+                    title = cleanName,
+                    caption = "Artist",
                     coverUrl = ytCover
                 )
             }

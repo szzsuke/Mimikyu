@@ -116,6 +116,7 @@ fun PlaylistCategoryScreen(
                     }
 
                     val columns = rememberMimikyuGridColumns(compact = 2, expandedPortrait = 4, expandedLandscape = 6)
+                    val uniquePlaylists = remember(state.playlists) { state.playlists.distinctBy { it.id } }
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(columns),
                         state = gridState,
@@ -137,7 +138,7 @@ fun PlaylistCategoryScreen(
                             )
                         }
 
-                        items(state.playlists, key = { it.id }) { playlist ->
+                        items(uniquePlaylists, key = { it.id }) { playlist ->
                             PlaylistCategoryCard(playlist = playlist, onClick = { onPlaylistClick(playlist.id) })
                         }
 

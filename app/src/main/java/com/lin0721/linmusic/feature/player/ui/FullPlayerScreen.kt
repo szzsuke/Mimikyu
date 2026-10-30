@@ -27,6 +27,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -133,6 +136,7 @@ fun FullPlayerScreen(
     val cardLayout by viewModel.fullPlayerCardLayout.collectAsStateWithLifecycle()
     val connectedDevice = rememberCurrentOutputDevice()
 
+
     LaunchedEffect(viewModel) {
         viewModel.toastEvent.collect { message ->
             ToastManager.showToast(message)
@@ -188,29 +192,49 @@ fun FullPlayerScreen(
         )
     }
     val colors = rememberFullPlayerColors(colorPalette)
+    var newStyleMeshColors by remember(currentTrack.mediaId) {
+        mutableStateOf(
+            BitChordMeshPaletteCache.get(currentTrack.mediaId) ?: BitChordFallbackColors
+        )
+    }
 
     val title = com.lin0721.linmusic.core.metadata.cleanMetadataText(currentTrack.mediaMetadata.title?.toString() ?: "")
     val artist = com.lin0721.linmusic.core.metadata.cleanMetadataText(currentTrack.mediaMetadata.artist?.toString() ?: "")
-    val rawCoverUrl = currentTrack.mediaMetadata.artworkUri?.toString()
-        ?.replace("?param=300y300", "").orEmpty()
+    val rawCoverUrl = currentTrack.mediaMetadata.artworkUri?.toString().orEmpty()
     val fallbackCoverUrl = currentQueueItem?.let {
-        rememberQueueItemCoverUrl(it.coverUrl, it.songId, it.localUri).replace("?param=300y300", "")
+        rememberQueueItemCoverUrl(it.coverUrl, it.songId, it.localUri, it.title, it.artist)
     }.orEmpty()
-    val coverUrl = rawCoverUrl.ifBlank { fallbackCoverUrl }
+    val baseCoverUrl = rawCoverUrl.ifBlank { fallbackCoverUrl }
+    val coverUrl = com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(baseCoverUrl, 1200)
 
     val previousCoverUrl = previousQueueItem?.let {
-        rememberQueueItemCoverUrl(it.coverUrl, it.songId, it.localUri).replace("?param=300y300", "")
+        val raw = rememberQueueItemCoverUrl(it.coverUrl, it.songId, it.localUri, it.title, it.artist)
+        com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(raw, 1200)
     }
     val nextCoverUrl = nextQueueItem?.let {
-        rememberQueueItemCoverUrl(it.coverUrl, it.songId, it.localUri).replace("?param=300y300", "")
+        val raw = rememberQueueItemCoverUrl(it.coverUrl, it.songId, it.localUri, it.title, it.artist)
+        com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(raw, 1200)
     }
 
     // ， of ；， and
-    LaunchedEffect(coverUrl) {
+    LaunchedEffect(coverUrl, currentTrack.mediaId) {
         if (coverUrl.isNotEmpty()) {
             val palette = extractBackdropPaletteFromUrl(context, coverUrl)
             colorPalette = palette
             PaletteMemoryCache.put(currentTrack.mediaId, palette)
+
+            val cachedMesh = BitChordMeshPaletteCache.get(currentTrack.mediaId)
+            if (cachedMesh != null) {
+                newStyleMeshColors = cachedMesh
+            } else {
+                withContext(Dispatchers.Default) {
+                    val meshColors = extractBitChordMeshColorsFromUrl(context, coverUrl)
+                    withContext(Dispatchers.Main) {
+                        newStyleMeshColors = meshColors
+                    }
+                    BitChordMeshPaletteCache.put(currentTrack.mediaId, meshColors)
+                }
+            }
         }
     }
 
@@ -376,7 +400,8 @@ fun FullPlayerScreen(
         PlayerBackdrop(
             base = colors.base,
             mode = BackdropMode.Collapsed,
-            translationYProvider = { if (showColumnLayout) scrollMetrics.backgroundTranslationY else 0f }
+            translationYProvider = { if (showColumnLayout) scrollMetrics.backgroundTranslationY else 0f },
+            modifier = Modifier.fillMaxSize()
         )
 
         // ：、 and 。、，
@@ -393,8 +418,11 @@ fun FullPlayerScreen(
                         alpha = crossfade * columnReflowAlpha.value
                     }
             ) {
+
+
                 LazyColumn(
                     state = listState,
+                    userScrollEnabled = true,
                     modifier = Modifier
                         .align(if (canUseWideLayout) Alignment.TopEnd else Alignment.TopCenter)
                         .fillMaxHeight()
@@ -462,10 +490,13 @@ fun FullPlayerScreen(
                         onCurrentBitmapLoaded = { bitmap ->
                             coroutineScope.launch(Dispatchers.Default) {
                                 val palette = extractBackdropPaletteFromBitmap(bitmap)
+                                val meshColors = extractBitChordMeshColors(bitmap)
                                 withContext(Dispatchers.Main) {
                                     colorPalette = palette
+                                    newStyleMeshColors = meshColors
                                 }
                                 PaletteMemoryCache.put(currentTrack.mediaId, palette)
+                                BitChordMeshPaletteCache.put(currentTrack.mediaId, meshColors)
                             }
                         },
                         fillGap = if (allCardsHidden) fillGap else null,
@@ -516,22 +547,6 @@ fun FullPlayerScreen(
                     )
                 )
 
-                // Spotify-style status bar gradient scrim for depth and color accuracy, pinned on top
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth()
-                        .height(mimikyuStatusBarTopPadding() + 8.dp)
-                        .background(
-                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Black.copy(alpha = 0.45f),
-                                    Color.Black.copy(alpha = 0.20f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                )
             }
         }
 
@@ -753,7 +768,8 @@ fun FullPlayerScreen(
             },
             onTimerDismiss = { showTimerSheet = false },
             onOutputDeviceSelected = { deviceId -> viewModel.playerManager.setPreferredAudioDevice(deviceId) },
-            onOutputDeviceDismiss = { showOutputDeviceSheet = false }
+            onOutputDeviceDismiss = { showOutputDeviceSheet = false },
+
         )
 
         MimikyuShareSheet(

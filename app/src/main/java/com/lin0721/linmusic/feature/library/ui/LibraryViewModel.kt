@@ -48,6 +48,7 @@ data class LibraryItem(
     val trackCount: Int = 0,
     val playCount: Long = 0,
     val isLikedSongs: Boolean = false,
+    val isDownloadedSongs: Boolean = false,
     val isOwnedByMe: Boolean = false
 )
 
@@ -77,7 +78,8 @@ class LibraryViewModel(
     private val context: Context,
     private val resourceProvider: ResourceProvider,
     private val playlistMutationBus: PlaylistMutationBus,
-    private val songDownloadManager: SongDownloadManager
+    private val songDownloadManager: SongDownloadManager,
+    private val downloadPreferences: com.lin0721.linmusic.core.download.DownloadPreferences? = null
 ) : ViewModel() {
 
     private val sharedPrefs = context.getSharedPreferences("library_prefs", Context.MODE_PRIVATE)
@@ -121,6 +123,14 @@ class LibraryViewModel(
 
         viewModelScope.launch {
             likedSongsRepository.likedSongs.collect {
+                if (_uiState.value is LibraryUiState.Success) {
+                    loadLibraryData()
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            downloadPreferences?.records?.collect {
                 if (_uiState.value is LibraryUiState.Success) {
                     loadLibraryData()
                 }
@@ -247,9 +257,11 @@ class LibraryViewModel(
                 val albums = albumsDeferred.await()
                 val subcount = subcountDeferred.await()
 
-                // Filter out NetEase liked songs playlist (we use Firestore Liked Songs)
+                // Filter out NetEase liked songs playlist (we use Firestore Liked Songs) and Episodes for later
                 val filteredPlaylists = playlists.filterIndexed { index, playlist ->
-                    !(index == 0 && profile != null && playlist.creator?.userId == profile.uid) && !playlist.name.contains("Liked")
+                    !(index == 0 && profile != null && playlist.creator?.userId == profile.uid) &&
+                    !playlist.name.contains("Liked") &&
+                    !playlist.name.contains("Episodes for later", ignoreCase = true)
                 }
 
                 // (Mapping)
@@ -285,6 +297,22 @@ class LibraryViewModel(
                     isOwnedByMe = true
                 )
                 mappedPlaylists.add(0, likedSongsItem)
+
+                // Prepend Downloaded Songs entry (offline files)
+                val downloadedList = downloadPreferences?.records?.firstOrNull() ?: emptyList()
+                val downloadedSongsItem = LibraryItem(
+                    id = "downloaded_songs",
+                    title = "Downloaded Songs",
+                    subtitle = "Playlist · ${downloadedList.size} songs",
+                    coverUrl = "",
+                    type = LibraryItemType.PLAYLIST,
+                    updateTime = System.currentTimeMillis(),
+                    trackCount = downloadedList.size,
+                    playCount = 0,
+                    isDownloadedSongs = true,
+                    isOwnedByMe = true
+                )
+                mappedPlaylists.add(1, downloadedSongsItem)
 
                 val mappedArtists = emptyList<LibraryItem>()
 
@@ -353,7 +381,7 @@ class LibraryViewModel(
         // Playlists：Created by me / Create of （"Liked Songs" and "Top Tracks" of ）
         if (filter == LibraryFilter.PLAYLIST && ownerFilter != null) {
             list = list.filter { item ->
-                val ownedByMe = item.isOwnedByMe || item.isLikedSongs || item.id == "-2"
+                val ownedByMe = item.isOwnedByMe || item.isLikedSongs || item.isDownloadedSongs || item.id == "-2"
                 if (ownerFilter == LibraryPlaylistOwnerFilter.MINE) ownedByMe else !ownedByMe
             }
         }

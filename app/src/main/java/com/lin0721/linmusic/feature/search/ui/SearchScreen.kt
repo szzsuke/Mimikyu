@@ -25,8 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lin0721.linmusic.LocalGlobalOverlayOpen
@@ -123,14 +121,6 @@ fun SearchScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        awaitPointerEvent(PointerEventPass.Initial)
-                        focusManager.clearFocus()
-                    }
-                }
-            }
     ) {
         SearchTopBar(
             mode = mode,
@@ -185,11 +175,13 @@ fun SearchScreen(
                         onAlbumClick = { id -> onPlaylistClick(id, true) },
                         onPlaylistClick = { id -> onPlaylistClick(id, false) },
                         onPlayRecentSong = viewModel::playRecentSong,
+                        onPlaySongMatch = viewModel::playSongMatch,
                         onAddSongToLibrary = { songId ->
                             collectSongId = songId
                             viewModel.prepareCollectDialog(songId)
                         },
-                        onRemoveRecentItem = viewModel::removeRecentItem
+                        onRemoveRecentItem = viewModel::removeRecentItem,
+                        onClearRecentItems = viewModel::clearHistory
                     )
                     SearchMode.Results -> SearchResultsContent(
                         selectedType = selectedType,

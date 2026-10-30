@@ -65,9 +65,11 @@ class PlaylistCategoryViewModel(
             result.onSuccess { page ->
                 this.cursor = page.nextCursor
                 val merged = if (isLoadMore) {
-                    (_uiState.value as? PlaylistCategoryUiState.Success)?.playlists.orEmpty() + page.playlists
+                    val existing = (_uiState.value as? PlaylistCategoryUiState.Success)?.playlists.orEmpty()
+                    val existingIds = existing.map { it.id }.toHashSet()
+                    existing + page.playlists.filter { existingIds.add(it.id) }
                 } else {
-                    page.playlists
+                    page.playlists.distinctBy { it.id }
                 }
                 _uiState.value = if (merged.isEmpty()) {
                     PlaylistCategoryUiState.Empty

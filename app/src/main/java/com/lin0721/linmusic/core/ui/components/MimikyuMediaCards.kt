@@ -30,9 +30,14 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.lin0721.linmusic.core.ui.interaction.pressScale
 import com.lin0721.linmusic.core.ui.theme.DownloadedGreen
-import com.lin0721.linmusic.core.ui.theme.MimikyuPress
-import com.lin0721.linmusic.core.ui.theme.RobotoFontFamily
 import com.lin0721.linmusic.core.ui.theme.MimikyuIcons
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
+import com.lin0721.linmusic.core.ui.theme.MimikyuPress
+import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
+import com.lin0721.linmusic.core.ui.theme.RobotoFontFamily
+import com.lin0721.linmusic.core.ui.theme.SurfaceDark
+import com.lin0721.linmusic.core.ui.theme.LikedSongsAssets
+import com.lin0721.linmusic.R
 
 /**
  * Standard Stacked Card / Vinyl Sleeve Tab peaking out from the top of the card.
@@ -93,6 +98,7 @@ fun MimikyuWireframePlaylistCard(
     trackCountColor: Color? = null,
     coverUrl: String = "",
     isLikedSongs: Boolean = false,
+    isDownloadedSongs: Boolean = false,
     isDailyMix: Boolean = false,
     dailyMixNumber: Int = 1,
     isGenreMix: Boolean = false,
@@ -107,9 +113,10 @@ fun MimikyuWireframePlaylistCard(
     val interactionSource = remember { MutableInteractionSource() }
 
     // Palette & sleeve colors
-    val (primaryAccent, sleeveColor) = remember(title, isLikedSongs, isDailyMix, dailyMixNumber, isGenreMix, accentColor) {
+    val (primaryAccent, sleeveColor) = remember(title, isLikedSongs, isDownloadedSongs, isDailyMix, dailyMixNumber, isGenreMix, accentColor) {
         when {
-            isLikedSongs -> Color(0xFF1DB954) to Color(0xFF0E381A)
+            isLikedSongs -> Color(0xFFFF9BA5) to Color(0xFF1F1F20)
+            isDownloadedSongs -> Color(0xFF9E8BFF) to Color(0xFF1F1F20)
             isDailyMix -> {
                 when (dailyMixNumber % 6) {
                     1 -> Color(0xFF7FE4C6) to Color(0xFF234C43) // Mint / Teal
@@ -131,16 +138,17 @@ fun MimikyuWireframePlaylistCard(
                     title.contains("Rock", ignoreCase = true) -> Color(0xFF263558)
                     title.contains("Chill", ignoreCase = true) -> Color(0xFF4C471E)
                     title.contains("Pop", ignoreCase = true) -> Color(0xFF1D4045)
-                    else -> Color(0xFF282828)
+                    else -> Color(0xFF1F1F20)
                 }
                 acc to sleeve
             }
-            else -> (accentColor ?: Color(0xFF1DB954)) to Color(0xFF282828)
+            else -> (accentColor ?: Color(0xFFFF9BA5)) to Color(0xFF1F1F20)
         }
     }
 
     val countDisplayColor = trackCountColor ?: when {
-        isLikedSongs -> Color(0xFF1DB954)
+        isLikedSongs -> MimikyuPink
+        isDownloadedSongs -> Color(0xFFB490E0)
         isDailyMix || isGenreMix -> primaryAccent
         else -> Color(0xFF888888)
     }
@@ -176,22 +184,49 @@ fun MimikyuWireframePlaylistCard(
                     .padding(top = 6.dp)
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF282828))
+                    .background(Color(0xFF18232C))
             ) {
                 when {
+                    // Case 0: Downloaded songs
+                    isDownloadedSongs -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF1F1F20)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(R.drawable.downloaded_songs_cover)
+                                    .error(R.drawable.downloaded_songs_cover)
+                                    .fallback(R.drawable.downloaded_songs_cover)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Downloaded Songs",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+
                     // Case 1: Liked songs
                     isLikedSongs -> {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFF0F3A1D)),
+                                .background(Color(0xFF1F1F20)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                painter = painterResource(MimikyuIcons.Heart),
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(LikedSongsAssets.COVER_URL)
+                                    .error(R.drawable.liked_songs_cover)
+                                    .fallback(R.drawable.liked_songs_cover)
+                                    .crossfade(true)
+                                    .build(),
                                 contentDescription = "Liked Songs",
-                                tint = Color(0xFF1DB954),
-                                modifier = Modifier.size(46.dp)
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
                             )
                         }
                     }
@@ -225,7 +260,7 @@ fun MimikyuWireframePlaylistCard(
                         Icon(
                             painter = painterResource(MimikyuIcons.Logo),
                             contentDescription = "Mimikyu",
-                            tint = Color.White,
+                            tint = MimikyuSilver,
                             modifier = Modifier
                                 .padding(8.dp)
                                 .size(16.dp)
@@ -270,7 +305,7 @@ fun MimikyuWireframePlaylistCard(
                         Icon(
                             painter = painterResource(MimikyuIcons.Logo),
                             contentDescription = "Mimikyu",
-                            tint = Color.White,
+                            tint = MimikyuSilver,
                             modifier = Modifier
                                 .padding(8.dp)
                                 .size(16.dp)
@@ -299,15 +334,15 @@ fun MimikyuWireframePlaylistCard(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .width(4.dp)
-                                    .height(15.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(primaryAccent)
+                                .width(4.dp)
+                                .height(15.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(primaryAccent)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = title,
-                                color = Color.White,
+                                color = MimikyuSilver,
                                 fontSize = 13.5.sp,
                                 fontFamily = RobotoFontFamily,
                                 fontWeight = FontWeight.Bold,
@@ -322,13 +357,13 @@ fun MimikyuWireframePlaylistCard(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color(0xFF333333)),
+                                .background(SurfaceDark),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 painter = painterResource(MimikyuIcons.Folder),
                                 contentDescription = "Folder",
-                                tint = Color(0xFF8E8E93),
+                                tint = MimikyuPink,
                                 modifier = Modifier.size(46.dp)
                             )
                         }
@@ -350,7 +385,7 @@ fun MimikyuWireframePlaylistCard(
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color(0xFF333333)),
+                                    .background(SurfaceDark),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -384,7 +419,7 @@ fun MimikyuWireframePlaylistCard(
         ) {
             Text(
                 text = title,
-                color = Color.White,
+                color = MimikyuSilver,
                 fontSize = 14.sp,
                 fontFamily = RobotoFontFamily,
                 fontWeight = FontWeight.SemiBold,
@@ -568,7 +603,7 @@ fun MimikyuWireframeAlbumCard(
         ) {
             Text(
                 text = title,
-                color = Color.White,
+                color = MimikyuSilver,
                 fontSize = 14.sp,
                 fontFamily = RobotoFontFamily,
                 fontWeight = FontWeight.SemiBold,
@@ -655,7 +690,7 @@ fun MimikyuWireframeArtistCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
-                    .background(Color(0xFF282828)),
+                    .background(SurfaceDark),
                 contentAlignment = Alignment.Center
             ) {
                 if (avatarUrl.isNotBlank()) {
@@ -672,7 +707,7 @@ fun MimikyuWireframeArtistCard(
                     val fontSize = if (circleSize != Dp.Unspecified) (circleSize.value * 0.28f).sp else 32.sp
                     Text(
                         text = name.firstOrNull()?.uppercase() ?: "?",
-                        color = Color.White.copy(alpha = 0.7f),
+                        color = MimikyuSilver.copy(alpha = 0.7f),
                         fontSize = fontSize,
                         fontFamily = RobotoFontFamily,
                         fontWeight = FontWeight.Bold
@@ -692,7 +727,7 @@ fun MimikyuWireframeArtistCard(
         // Centered Artist Name
         Text(
             text = name,
-            color = Color.White,
+            color = MimikyuSilver,
             fontSize = 14.sp,
             fontFamily = RobotoFontFamily,
             fontWeight = FontWeight.SemiBold,

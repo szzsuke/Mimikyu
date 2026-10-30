@@ -29,6 +29,8 @@ sealed class Screen {
     @Serializable
     data object LikedSongs : Screen()
     @Serializable
+    data object DownloadedSongs : Screen()
+    @Serializable
     data object Settings : Screen()
     @Serializable
     data class Artist(val id: Long) : Screen()
@@ -176,6 +178,10 @@ class MimikyuNavigationState(
 
     fun openLikedSongs() {
         navigateTo(Screen.LikedSongs)
+    }
+
+    fun openDownloadedSongs() {
+        navigateTo(Screen.DownloadedSongs)
     }
 
     fun openPlaylist(id: Long, isAlbum: Boolean) {

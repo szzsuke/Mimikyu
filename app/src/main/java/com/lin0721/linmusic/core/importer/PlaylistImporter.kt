@@ -49,7 +49,8 @@ class PlaylistImporter(
     private val likedSongsRepository: LikedSongsRepository? = null,
     private val userPreferences: UserPreferences? = null,
     private val songLikeRepository: SongLikeRepository? = null,
-    private val localPlaylistStore: com.lin0721.linmusic.core.userplaylist.LocalCustomPlaylistStore? = null
+    private val localPlaylistStore: com.lin0721.linmusic.core.userplaylist.LocalCustomPlaylistStore? = null,
+    private val auroraApiClient: com.lin0721.linmusic.core.aurora.AuroraApiClient? = null
 ) {
 
     companion object {
@@ -59,6 +60,125 @@ class PlaylistImporter(
         private const val MAX_ZIP_UNCOMPRESSED_BYTES = 15L * 1024L * 1024L // 15MB uncompressed limit
         private const val MAX_ZIP_ENTRIES = 50
     }
+
+    suspend fun importFromLinkUrl(
+        urlOrId: String,
+        onProgress: (status: String, current: Int, total: Int) -> Unit
+    ): Result<List<ImportPlaylistResult>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val client = auroraApiClient ?: com.lin0721.linmusic.core.aurora.AuroraApiClient()
+            val trimmed = urlOrId.trim()
+            val results = mutableListOf<ImportPlaylistResult>()
+
+            onProgress("Connecting to link...", 0, 0)
+
+            // 1. Check if it's a Playlist
+            val playlistId = com.lin0721.linmusic.core.aurora.AuroraApiClient.parseUniversalUrl(trimmed, "playlist")
+            if (playlistId != null || trimmed.startsWith("spotify:playlist:")) {
+                onProgress("Fetching playlist tracks...", 0, 0)
+                val spPlaylist = client.getPlaylist(trimmed)
+                    ?: throw IllegalArgumentException("Could not load playlist. Please check the link.")
+                val parsedTracks = spPlaylist.tracks.map {
+                    ParsedTrackInfo(
+                        title = it.title,
+                        artist = it.author,
+                        album = it.albumName ?: "",
+                        durationMs = it.durationMs
+                    )
+                }
+                val res = processImportedTracks(spPlaylist.name, parsedTracks, onProgress)
+                results.add(res)
+                return@runCatching results
+            }
+
+            // 2. Check if it's an Album
+            val albumId = com.lin0721.linmusic.core.aurora.AuroraApiClient.parseUniversalUrl(trimmed, "album")
+            if (albumId != null || trimmed.startsWith("spotify:album:")) {
+                onProgress("Fetching album tracks...", 0, 0)
+                val spAlbum = client.getAlbum(trimmed)
+                    ?: throw IllegalArgumentException("Could not load album. Please check the link.")
+                val parsedTracks = spAlbum.tracks.map {
+                    ParsedTrackInfo(
+                        title = it.title,
+                        artist = it.author,
+                        album = spAlbum.name,
+                        durationMs = it.durationMs
+                    )
+                }
+                val res = processImportedTracks(spAlbum.name, parsedTracks, onProgress)
+                results.add(res)
+                return@runCatching results
+            }
+
+            // 3. Check if it's a User Profile
+            val userId = com.lin0721.linmusic.core.aurora.AuroraApiClient.parseUniversalUrl(trimmed, "user")
+            if (userId != null || trimmed.startsWith("spotify:user:")) {
+                onProgress("Fetching user public playlists...", 0, 0)
+                val userProfile = client.getUserPlaylists(trimmed)
+                    ?: throw IllegalArgumentException("Could not load user profile.")
+                if (userProfile.playlists.isEmpty()) {
+                    throw IllegalArgumentException("No public playlists found for this user.")
+                }
+                for (p in userProfile.playlists) {
+                    onProgress("Importing ${p.name}...", results.size, userProfile.playlists.size)
+                    val fullPlaylist = client.getPlaylist(p.id) ?: continue
+                    val parsed = fullPlaylist.tracks.map {
+                        ParsedTrackInfo(
+                            title = it.title,
+                            artist = it.author,
+                            album = it.albumName ?: "",
+                            durationMs = it.durationMs
+                        )
+                    }
+                    val res = processImportedTracks(fullPlaylist.name, parsed, onProgress)
+                    results.add(res)
+                }
+                return@runCatching results
+            }
+
+            // 4. Check if it's a single track
+            val trackId = com.lin0721.linmusic.core.aurora.AuroraApiClient.parseUniversalUrl(trimmed, "track")
+            if (trackId != null || trimmed.startsWith("spotify:track:")) {
+                onProgress("Fetching track details...", 0, 0)
+                val track = client.getTrack(trimmed)
+                    ?: throw IllegalArgumentException("Could not load track.")
+                val parsed = listOf(
+                    ParsedTrackInfo(
+                        title = track.title,
+                        artist = track.author,
+                        album = track.albumName ?: "",
+                        durationMs = track.durationMs
+                    )
+                )
+                val res = importToLikedSongs(parsed, onProgress)
+                results.add(res)
+                return@runCatching results
+            }
+
+            // 5. Generic fallback: try playlist first, then album
+            onProgress("Checking streaming link...", 0, 0)
+            val genericPlaylist = client.getPlaylist(trimmed)
+            if (genericPlaylist != null && genericPlaylist.tracks.isNotEmpty()) {
+                val parsed = genericPlaylist.tracks.map {
+                    ParsedTrackInfo(title = it.title, artist = it.author, album = it.albumName ?: "", durationMs = it.durationMs)
+                }
+                results.add(processImportedTracks(genericPlaylist.name, parsed, onProgress))
+                return@runCatching results
+            }
+
+            val genericAlbum = client.getAlbum(trimmed)
+            if (genericAlbum != null && genericAlbum.tracks.isNotEmpty()) {
+                val parsed = genericAlbum.tracks.map {
+                    ParsedTrackInfo(title = it.title, artist = it.author, album = genericAlbum.name, durationMs = it.durationMs)
+                }
+                results.add(processImportedTracks(genericAlbum.name, parsed, onProgress))
+                return@runCatching results
+            }
+
+            throw IllegalArgumentException("Could not recognize link. Please paste a valid playlist, album, track, or user link.")
+        }
+    }
+
 
     suspend fun importFromUri(
         context: Context,
@@ -278,7 +398,7 @@ class PlaylistImporter(
                     fallbackRes?.items?.filterIsInstance<SongItem>()?.let { candidates.addAll(it) }
                 }
 
-                val layaChoice = com.lin0721.linmusic.core.laya.LayaDecisionEngine.selectBestSong(item, candidates)
+                val layaChoice = TrackMatcher.selectBestSong(item, candidates)
                 val firstSong = layaChoice.selected
 
                 if (firstSong != null) {
@@ -304,7 +424,7 @@ class PlaylistImporter(
                     val verifiedTitle = enriched?.title?.takeIf { it.isNotBlank() } ?: cleanTitle
                     val verifiedArtist = enriched?.artist?.takeIf { it.isNotBlank() } ?: mainArtist
                     val verifiedAlbum = enriched?.albumName?.takeIf { it.isNotBlank() } ?: cleanAlbum
-                    val layaCover = com.lin0721.linmusic.core.laya.LayaDecisionEngine.chooseBestCover(
+                    val layaCover = TrackMatcher.chooseBestCover(
                         title = cleanTitle,
                         artist = mainArtist,
                         ytCoverUrl = firstSong.thumbnail,
@@ -457,7 +577,7 @@ class PlaylistImporter(
                     titleRes?.items?.filterIsInstance<SongItem>()?.let { candidates.addAll(it) }
                 }
 
-                val layaChoice = com.lin0721.linmusic.core.laya.LayaDecisionEngine.selectBestSong(item, candidates)
+                val layaChoice = TrackMatcher.selectBestSong(item, candidates)
                 val firstSong = layaChoice.selected
 
                 if (firstSong != null) {
@@ -484,7 +604,7 @@ class PlaylistImporter(
                     val verifiedArtist = enriched?.artist?.takeIf { it.isNotBlank() } ?: mainArtist
                     val verifiedAlbum = enriched?.albumName?.takeIf { it.isNotBlank() } ?: cleanAlbum
 
-                    val layaCover = com.lin0721.linmusic.core.laya.LayaDecisionEngine.chooseBestCover(
+                    val layaCover = TrackMatcher.chooseBestCover(
                         title = cleanTitle,
                         artist = mainArtist,
                         ytCoverUrl = firstSong.thumbnail,

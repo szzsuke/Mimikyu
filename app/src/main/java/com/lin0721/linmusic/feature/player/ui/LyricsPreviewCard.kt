@@ -33,6 +33,7 @@ import com.lin0721.linmusic.core.ui.theme.lighten
 import com.lin0721.linmusic.core.ui.theme.saturateIfChromatic
 import com.lin0721.linmusic.core.player.domain.LyricLine
 import com.lin0721.linmusic.core.player.domain.lyricLineKey
+import com.lin0721.linmusic.core.ui.theme.SFProFontFamily
 
 private val LYRICS_CARD_BLUR_RADIUS = 32.dp
 
@@ -292,7 +293,7 @@ fun LyricsPreview(
                     }
             ) {
                 val mainFontSize = if (isCurrent) 20.sp else 18.sp
-                val transFontSize = if (isCurrent) 15.sp else 14.sp
+                val transFontSize = if (isCurrent) 16.sp else 15.sp
                 val displayText = remember(line) {
                     if (line.words.isNotEmpty() && !line.text.contains(" ") && line.words.size > 1 && line.words.any { it.text.endsWith(" ") }) {
                         line.words.joinToString("") { it.text }.trim()
@@ -300,11 +301,19 @@ fun LyricsPreview(
                         line.text
                     }
                 }
+                val annotatedDisplayText = remember(displayText, isCurrent, inactiveColor) {
+                    buildAnnotatedLoveString(
+                        text = displayText,
+                        baseColor = if (isCurrent) Color.White else inactiveColor,
+                        loveColor = com.lin0721.linmusic.core.ui.theme.MimikyuPink,
+                        isHighlighted = isCurrent
+                    )
+                }
                 Text(
-                    text       = displayText,
+                    text       = annotatedDisplayText,
                     fontSize   = mainFontSize,
+                    fontFamily = SFProFontFamily,
                     lineHeight = (mainFontSize.value * 1.35f).sp,
-                    color      = if (isCurrent) Color.White else inactiveColor,
                     fontWeight = FontWeight.ExtraBold,
                     textAlign  = TextAlign.Start,
                     onTextLayout = { if (isCurrent) onCurrentLineLayout(it.lineCount) },
@@ -315,6 +324,7 @@ fun LyricsPreview(
                     Text(
                         text      = line.translation,
                         fontSize  = transFontSize,
+                        fontFamily = SFProFontFamily,
                         lineHeight = (transFontSize.value * 1.35f).sp,
                         color     = (if (isCurrent) Color.White else inactiveColor).copy(alpha = animatedTransAlpha),
                         textAlign = TextAlign.Start,

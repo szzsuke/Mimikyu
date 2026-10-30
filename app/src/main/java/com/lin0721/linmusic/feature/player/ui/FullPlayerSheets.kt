@@ -54,7 +54,8 @@ fun FullPlayerSheets(
     onSetTimer: (Int) -> Unit,
     onTimerDismiss: () -> Unit,
     onOutputDeviceSelected: (Int) -> Unit,
-    onOutputDeviceDismiss: () -> Unit
+    onOutputDeviceDismiss: () -> Unit,
+
 ) {
     if (showQueueSheet) {
         PlayQueueSheet(
@@ -98,6 +99,7 @@ fun FullPlayerSheets(
             onCollectClick = onCollectClick,
             onShareClick = onShareClick,
             onDownloadClick = onDownloadClick,
+
             onDismiss = onMoreOptionsDismiss
         )
     }

@@ -36,11 +36,13 @@ private const val TAG = "ArtistRepositoryImpl"
 class ArtistRepositoryImpl(
     private val lastFmRepository: LastFmRepository? = null,
     private val metadataEnricher: com.lin0721.linmusic.core.metadata.MetadataEnricher? = null,
+    private val auroraApiClient: com.lin0721.linmusic.core.aurora.AuroraApiClient? = null,
 ) : ArtistRepository {
 
     private val artistAlbumsCache = ConcurrentHashMap<Long, List<ArtistAlbum>>()
     private val artistSongsCache = ConcurrentHashMap<Long, MutableList<Track>>()
     private val artistSongsContinuationMap = ConcurrentHashMap<Long, String?>()
+    private val artistCatalogIdCache = ConcurrentHashMap<Long, String>()
 
     private suspend fun resolveBrowseId(artistId: Long): String? {
         val existing = YouTubeIdRegistry.getArtistBrowseId(artistId)
@@ -82,10 +84,38 @@ class ArtistRepositoryImpl(
     }
 
     override fun getArtistDetail(artistId: Long): Flow<Result<ArtistDetailInfo>> = flow {
-        val ytArtistId = resolveBrowseId(artistId)
         val name = YouTubeIdRegistry.getArtistName(artistId)
-        AppLogger.d(TAG, "getArtistDetail for id=$artistId, ytArtistId=$ytArtistId, name=$name")
+        AppLogger.d(TAG, "getArtistDetail for id=$artistId, name=$name")
 
+        // ── PRIMARY: Try native Catalog Artist Details ──
+        if (auroraApiClient != null) {
+            try {
+                val spArtist = artistCatalogIdCache[artistId]?.let { auroraApiClient.getArtist(it) }
+                    ?: if (name.isNotBlank()) auroraApiClient.searchArtist(name) else null
+                if (spArtist != null) {
+                    artistCatalogIdCache[artistId] = spArtist.id
+                    val finalAvatar = spArtist.avatarImageUrl ?: spArtist.headerImageUrl ?: ""
+                    val finalCover = spArtist.headerImageUrl ?: finalAvatar
+                    val info = ArtistDetailInfo(
+                        id = artistId,
+                        name = spArtist.name,
+                        cover = finalCover,
+                        avatar = finalAvatar,
+                        briefDesc = spArtist.bio ?: "",
+                        albumSize = 0,
+                        musicSize = spArtist.topTracks.size,
+                        identifyTag = if (spArtist.verified) listOf("Verified Artist") else emptyList()
+                    )
+                    emit(Result.success(info))
+                    return@flow
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Spotify artist detail fetch failed for $name: ${e.message}")
+            }
+        }
+
+        // ── FALLBACK: YouTube Music Artist Details ──
+        val ytArtistId = resolveBrowseId(artistId)
         val page = if (ytArtistId != null) runCatching { YouTube.artist(ytArtistId).getOrNull() }.getOrNull() else null
         if (page != null && ytArtistId != null) {
             val title = cleanMetadataText(page.artist.title)
@@ -100,22 +130,34 @@ class ArtistRepositoryImpl(
             }
 
             val artistDisplayName = title.ifBlank { name }
+            val appleArt = runCatching {
+                com.lin0721.linmusic.core.metadata.AppleArtistArtRepository.artFor(artistDisplayName)
+            }.getOrNull()
+
             val cachedPortrait = com.lin0721.linmusic.core.metadata.ArtistPortraitProvider.getCachedPortrait(artistDisplayName)
-            val finalCover = if (cachedPortrait.startsWith("android.resource://")) {
-                cachedPortrait
-            } else {
-                page.artist.thumbnail ?: cachedPortrait
+            val finalCover = when {
+                appleArt != null && appleArt.heroUrl.isNotBlank() -> appleArt.heroUrl
+                cachedPortrait.startsWith("android.resource://") -> cachedPortrait
+                !page.artist.thumbnail.isNullOrBlank() -> com.lin0721.linmusic.core.metadata.YouTubeThumbnailUpscaler.forPlayer(page.artist.thumbnail) ?: page.artist.thumbnail!!
+                else -> cachedPortrait
+            }
+            val finalAvatar = when {
+                appleArt != null && appleArt.heroUrl.isNotBlank() -> appleArt.heroUrl
+                !page.artist.thumbnail.isNullOrBlank() -> com.lin0721.linmusic.core.metadata.YouTubeThumbnailUpscaler.forCard(page.artist.thumbnail) ?: page.artist.thumbnail!!
+                else -> finalCover
             }
 
             val info = ArtistDetailInfo(
                 id = artistId,
                 name = artistDisplayName,
                 cover = finalCover,
-                avatar = page.artist.thumbnail ?: finalCover,
+                avatar = finalAvatar,
                 briefDesc = bio,
                 albumSize = 0,
                 musicSize = 0,
-                identifyTag = emptyList()
+                identifyTag = emptyList(),
+                logoUrl = appleArt?.logoUrl,
+                videoUrl = appleArt?.videoUrl
             )
             emit(Result.success(info))
         } else {
@@ -128,12 +170,22 @@ class ArtistRepositoryImpl(
                 val fm = lastFmRepository.getArtistInfo(queryName)
                 bio = fm?.bioSummary ?: ""
             }
-            if (avatar.isBlank() && queryName.isNotBlank()) {
+
+            val appleArt = if (queryName.isNotBlank()) {
+                runCatching {
+                    com.lin0721.linmusic.core.metadata.AppleArtistArtRepository.artFor(queryName)
+                }.getOrNull()
+            } else null
+
+            if (appleArt != null && appleArt.heroUrl.isNotBlank()) {
+                avatar = appleArt.heroUrl
+            } else if (avatar.isBlank() && queryName.isNotBlank()) {
                 avatar = com.lin0721.linmusic.core.metadata.ArtistPortraitProvider.getArtistPortrait(queryName)
             }
             if (avatar.isBlank() && queryName.isNotBlank()) {
                 val songRes = YouTube.search(queryName, YouTube.SearchFilter.FILTER_SONG).getOrNull()
-                avatar = songRes?.items?.filterIsInstance<SongItem>()?.firstOrNull()?.thumbnail ?: ""
+                val rawThumb = songRes?.items?.filterIsInstance<SongItem>()?.firstOrNull()?.thumbnail ?: ""
+                avatar = com.lin0721.linmusic.core.metadata.YouTubeThumbnailUpscaler.forHeader(rawThumb) ?: rawThumb
             }
             if (avatar.isNotBlank()) {
                 com.lin0721.linmusic.core.metadata.ArtistPortraitProvider.registerPortrait(queryName, avatar)
@@ -146,7 +198,9 @@ class ArtistRepositoryImpl(
                 briefDesc = bio,
                 albumSize = 0,
                 musicSize = 0,
-                identifyTag = emptyList()
+                identifyTag = emptyList(),
+                logoUrl = appleArt?.logoUrl,
+                videoUrl = appleArt?.videoUrl
             )
             emit(Result.success(info))
         }
@@ -165,8 +219,42 @@ class ArtistRepositoryImpl(
             return@flow
         }
 
-        val ytArtistId = resolveBrowseId(artistId)
         val targetArtistName = YouTubeIdRegistry.getArtistName(artistId)
+
+        // ── PRIMARY: Try native Catalog Discography ──
+        if (auroraApiClient != null) {
+            try {
+                val spArtistId = artistCatalogIdCache[artistId]
+                    ?: if (targetArtistName.isNotBlank()) auroraApiClient.searchArtist(targetArtistName)?.id else null
+                if (spArtistId != null) {
+                    artistCatalogIdCache[artistId] = spArtistId
+                    val releases = auroraApiClient.getArtistDiscography(spArtistId, offset = 0, limit = 50)
+                    if (releases.isNotEmpty()) {
+                        val spAlbums = releases.map { rel ->
+                            val albumId = (rel.id.hashCode().toLong() and 0x7FFFFFFFL)
+                            ArtistAlbum(
+                                id = albumId,
+                                name = cleanMetadataText(rel.name),
+                                picUrl = rel.artworkUrl ?: "",
+                                publishTime = rel.year?.let { parseDateToEpochMillis(it.toString()) } ?: 0L,
+                                size = rel.trackCount
+                            )
+                        }.distinctBy { it.id }.distinctBy { it.name.lowercase().trim() }
+
+                        artistAlbumsCache[artistId] = spAlbums
+                        val paged = spAlbums.drop(offset).take(limit)
+                        val hasMore = offset + paged.size < spAlbums.size
+                        emit(Result.success(ArtistAlbumPage(albums = paged, hasMore = hasMore)))
+                        return@flow
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Spotify discography failed for $targetArtistName: ${e.message}")
+            }
+        }
+
+        // ── FALLBACK: YouTube Music Discography ──
+        val ytArtistId = resolveBrowseId(artistId)
         val albumsList = mutableListOf<ArtistAlbum>()
 
         if (ytArtistId != null) {
@@ -313,6 +401,24 @@ class ArtistRepositoryImpl(
 
     override fun getArtistFansCount(artistId: Long): Flow<Result<Long>> = flow {
         val artistName = YouTubeIdRegistry.getArtistName(artistId)
+
+        // ── PRIMARY: Try native Catalog Monthly Listeners ──
+        if (auroraApiClient != null) {
+            try {
+                val spArtist = artistCatalogIdCache[artistId]?.let { auroraApiClient.getArtist(it) }
+                    ?: if (artistName.isNotBlank()) auroraApiClient.searchArtist(artistName) else null
+                if (spArtist != null) {
+                    val count = spArtist.monthlyListeners.takeIf { it > 0L } ?: spArtist.followers
+                    if (count > 0L) {
+                        emit(Result.success(count))
+                        return@flow
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Catalog fans count failed for $artistName: ${e.message}")
+            }
+        }
+
         var totalFans = 0L
 
         if (artistName.isNotBlank()) {
@@ -375,8 +481,64 @@ class ArtistRepositoryImpl(
     }
 
     override fun getArtistTopSongs(artistId: Long): Flow<Result<List<Track>>> = flow {
-        val ytArtistId = resolveBrowseId(artistId)
         val targetArtistName = YouTubeIdRegistry.getArtistName(artistId)
+
+        // ── PRIMARY: Try native Catalog Top Songs ──
+        if (auroraApiClient != null) {
+            try {
+                val spArtist = artistCatalogIdCache[artistId]?.let { auroraApiClient.getArtist(it) }
+                    ?: if (targetArtistName.isNotBlank()) auroraApiClient.searchArtist(targetArtistName) else null
+                if (spArtist != null && spArtist.topTracks.isNotEmpty()) {
+                    artistCatalogIdCache[artistId] = spArtist.id
+                    val mappedTracks = spArtist.topTracks.map { st ->
+                        val cleanTitle = cleanMetadataText(st.title)
+                        val cleanArtist = cleanMetadataText(st.author)
+                        val cleanAlbum = cleanMetadataText(st.albumName ?: "")
+                        val durationSec = (st.durationMs / 1000).toInt()
+                        val coverUrl = st.artworkUrl ?: ""
+
+                        val mappedArtists = st.author.split(Regex(""",\s*|/\s*""")).map { aName ->
+                            val cleanA = cleanMetadataText(aName)
+                            val aId = YouTubeIdRegistry.registerArtistByName(cleanA)
+                            Artist(id = aId, name = cleanA)
+                        }.ifEmpty {
+                            val aId = YouTubeIdRegistry.registerArtistByName(cleanArtist)
+                            listOf(Artist(id = aId, name = cleanArtist))
+                        }
+
+                        val songId = YouTubeIdRegistry.registerPlaceholder(
+                            title = cleanTitle,
+                            artist = cleanArtist,
+                            album = cleanAlbum,
+                            durationSec = durationSec,
+                            coverUrl = coverUrl,
+                            artists = mappedArtists
+                        ).id
+
+                        val track = Track(
+                            id = songId,
+                            name = cleanTitle,
+                            ar = mappedArtists,
+                            al = Album(
+                                id = (st.albumId ?: cleanAlbum).hashCode().toLong() and 0x7FFFFFFFL,
+                                name = cleanAlbum,
+                                picUrl = coverUrl
+                            ),
+                            dt = st.durationMs
+                        )
+                        YouTubeIdRegistry.registerTrack(track)
+                        track
+                    }
+                    emit(Result.success(mappedTracks))
+                    return@flow
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Spotify top songs failed for $targetArtistName: ${e.message}")
+            }
+        }
+
+        // ── FALLBACK: YouTube Music Top Songs ──
+        val ytArtistId = resolveBrowseId(artistId)
         val songsList = mutableListOf<Track>()
 
         if (ytArtistId != null) {

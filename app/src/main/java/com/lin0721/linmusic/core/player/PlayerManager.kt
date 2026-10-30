@@ -1438,9 +1438,31 @@ class PlayerManager(
         roaming.cancel()
     }
 
-    // SongsPlay（「Recently Played」）， of 、
+    private var lastStartPlayReportedSongId: Long = -1L
+    private var lastStartPlayReportedTimeMs: Long = 0L
+
+    // Reports song start to repository, which updates userPreferences.recordTrackPlayed() for Recents
     private fun reportStartPlay(mediaItem: MediaItem) {
         val songId = mediaItem.mediaId.toLongOrNull() ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (songId == lastStartPlayReportedSongId && now - lastStartPlayReportedTimeMs < 2000L) {
+            return
+        }
+        lastStartPlayReportedSongId = songId
+        lastStartPlayReportedTimeMs = now
+
+        val title = mediaItem.mediaMetadata.title?.toString().orEmpty()
+        val artist = mediaItem.mediaMetadata.artist?.toString().orEmpty()
+        val cover = mediaItem.mediaMetadata.artworkUri?.toString().orEmpty()
+        if (title.isNotBlank()) {
+            com.lin0721.linmusic.core.player.innertube.YouTubeIdRegistry.registerMetadata(
+                songId = songId,
+                title = title,
+                artist = artist,
+                coverUrl = cover
+            )
+        }
+
         scope.launch {
             repository.reportStartPlay(songId).collect { result ->
                 result.onFailure { AppLogger.w(TAG, "Scrobble report startplay failed: songId=$songId", it) }
@@ -1605,6 +1627,7 @@ class PlayerManager(
         playbackQueue.setPlayContext(mediaItem?.mediaMetadata?.extras?.getString("playContext"))
         recorder.resetSession()
         if (mediaItem != null) {
+            reportStartPlay(mediaItem)
             val songId = mediaItem.mediaId.toLongOrNull()
             if (songId != null) {
                 val matchingIdx = playbackQueue.items.value.indexOfFirst { it.songId == songId }
@@ -1838,6 +1861,14 @@ class PlayerManager(
                     val nextItem = items[nextIdx]
                     val cached = metadataEnricher?.getCached(nextItem.songId.toString())
                         ?: metadataEnricher?.getCachedByQuery(nextItem.title, nextItem.artist)
+                    if (cached == null) {
+                        metadataEnricher?.enrichInBackground(
+                            songId = nextItem.songId.toString(),
+                            title = nextItem.title,
+                            artist = nextItem.artist,
+                            fallbackCoverUrl = nextItem.coverUrl
+                        )
+                    }
                     val rawCover = cached?.artworkUrl ?: nextItem.coverUrl
                     val localUri = nextItem.localUri
                     val effectiveCover = if (!rawCover.isNullOrBlank()) {

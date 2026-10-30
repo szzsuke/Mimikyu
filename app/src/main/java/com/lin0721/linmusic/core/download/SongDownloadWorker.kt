@@ -169,16 +169,21 @@ class SongDownloadWorker(
                     null
                 }
             } else {
-                val uri = insertPendingMediaStoreEntry(displayName, mimeType)
-                if (uri == null) {
-                    onTerminalFailure("Failed to create local file")
-                    return Result.failure(workDataOf(KEY_ERROR to "MediaStore insert failed"))
+                // Save to app-private downloads directory with .nomedia so phone music player / MediaStore cannot see it
+                val privateDir = File(
+                    applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC)
+                        ?: File(applicationContext.filesDir, "music"),
+                    "MimikyuDownloads"
+                ).apply {
+                    mkdirs()
+                    runCatching { File(this, ".nomedia").createNewFile() }
                 }
-                cleanup = { applicationContext.contentResolver.delete(uri, null, null) }
-                if (copyFileToUri(tempFile, uri)) {
-                    finalizePendingMediaStoreEntry(uri)
-                    writeLyricsToMediaStore(displayName, ttmlText, lrcText)
-                    uri
+                val finalName = uniqueFileNameIn(privateDir, displayName)
+                val targetFile = File(privateDir, finalName)
+                cleanup = { targetFile.delete() }
+                if (runCatching { tempFile.copyTo(targetFile, overwrite = true) }.isSuccess) {
+                    writeLyricsToPrivateDirectory(privateDir, finalName, ttmlText, lrcText)
+                    Uri.fromFile(targetFile)
                 } else {
                     null
                 }
@@ -198,7 +203,8 @@ class SongDownloadWorker(
                     downloadedAt = System.currentTimeMillis(),
                     fileSize = finalFileSize,
                     songName = songName,
-                    artistName = artistName
+                    artistName = artistName,
+                    coverUrl = coverUrl.orEmpty()
                 )
             )
 
@@ -407,6 +413,29 @@ class SongDownloadWorker(
         val folderName = sanitizeFileName(batchLabel)
         return root.findFile(folderName)?.takeIf { it.isDirectory }
             ?: root.createDirectory(folderName)
+    }
+
+    private fun uniqueFileNameIn(directory: File, displayName: String): String {
+        if (!File(directory, displayName).exists()) return displayName
+        val dot = displayName.lastIndexOf('.')
+        return if (dot > 0) "${displayName.substring(0, dot)}_${System.currentTimeMillis()}${displayName.substring(dot)}"
+        else "${displayName}_${System.currentTimeMillis()}"
+    }
+
+    private fun writeLyricsToPrivateDirectory(
+        directory: File,
+        audioDisplayName: String,
+        ttmlText: String?,
+        lrcText: String?
+    ) {
+        val dot = audioDisplayName.lastIndexOf('.')
+        val base = if (dot > 0) audioDisplayName.substring(0, dot) else audioDisplayName
+        if (!ttmlText.isNullOrBlank()) {
+            runCatching { File(directory, "$base.ttml").writeText(ttmlText) }
+        }
+        if (!lrcText.isNullOrBlank()) {
+            runCatching { File(directory, "$base.lrc").writeText(lrcText) }
+        }
     }
 
     private fun uniqueNameIn(directory: DocumentFile, displayName: String): String {

@@ -78,46 +78,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import com.lin0721.linmusic.core.auth.UserProfile
 
-// Local Music
-@Composable
-private fun LocalMusicEntryRow(onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = MimikyuSpacing.md, vertical = MimikyuSpacing.xs)
-            .clip(RoundedCornerShape(PillRadius))
-            .background(MaterialTheme.colorScheme.surface)
-            .pressable(MimikyuPress.Row) { onClick() }
-            .padding(horizontal = MimikyuSpacing.md, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            painter = painterResource(MimikyuIcons.Track),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(22.dp)
-        )
-        Spacer(modifier = Modifier.width(MimikyuSpacing.sm))
-        Text(
-            text = "Local Music",
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1f)
-        )
-        Icon(
-            painter = painterResource(MimikyuIcons.ChevronRight),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(16.dp)
-        )
-    }
-}
+
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     onLikedSongsClick: () -> Unit = {},
+    onDownloadedSongsClick: () -> Unit = {},
     onPlaylistClick: (Long) -> Unit,
     onArtistClick: (Long) -> Unit,
     onAlbumClick: (Long) -> Unit,
@@ -234,7 +201,7 @@ fun LibraryScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(64.dp)
+                            .height(54.dp)
                             .padding(horizontal = MimikyuSpacing.md),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -248,7 +215,7 @@ fun LibraryScreen(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(40.dp)
+                                .height(36.dp)
                                 .clip(RoundedCornerShape(PillRadius))
                                 .background(MaterialTheme.colorScheme.surface)
                                 .padding(horizontal = MimikyuSpacing.md),
@@ -277,7 +244,7 @@ fun LibraryScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(64.dp)
+                            .height(54.dp)
                             .padding(horizontal = MimikyuSpacing.md),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -286,7 +253,7 @@ fun LibraryScreen(
                         Text(
                             text = "Your Library",
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 24.sp,
+                            fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.weight(1f)
                         )
@@ -316,8 +283,6 @@ fun LibraryScreen(
                     selectedPlaylistOwnerFilter = selectedPlaylistOwnerFilter,
                     onSelectPlaylistOwnerFilter = { viewModel.togglePlaylistOwnerFilter(it) }
                 )
-
-                LocalMusicEntryRow(onClick = onNavigateToLocalMusic)
 
                 // 3.
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -390,6 +355,8 @@ fun LibraryScreen(
                                                     onClick = {
                                                         if (item.isLikedSongs || item.id == "liked_songs") {
                                                             onLikedSongsClick()
+                                                        } else if (item.isDownloadedSongs || item.id == "downloaded_songs") {
+                                                            onDownloadedSongsClick()
                                                         } else if (item.type == LibraryItemType.PLAYLIST) {
                                                             item.id.toLongOrNull()?.let { onPlaylistClick(it) }
                                                         } else if (item.type == LibraryItemType.ARTIST) {
@@ -432,6 +399,8 @@ fun LibraryScreen(
                                             onClick = {
                                                 if (item.isLikedSongs || item.id == "liked_songs") {
                                                     onLikedSongsClick()
+                                                } else if (item.isDownloadedSongs || item.id == "downloaded_songs") {
+                                                    onDownloadedSongsClick()
                                                 } else if (item.type == LibraryItemType.PLAYLIST) {
                                                     item.id.toLongOrNull()?.let { onPlaylistClick(it) }
                                                 } else if (item.type == LibraryItemType.ARTIST) {

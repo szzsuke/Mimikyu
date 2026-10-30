@@ -63,6 +63,9 @@ val networkModule = module {
         }
     }
 
+    // ─── Native Catalog API Client ───
+    single { com.lin0721.linmusic.core.aurora.AuroraApiClient() }
+
     // ───  ───
     single { CryptoInterceptor(get()) }
 

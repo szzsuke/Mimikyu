@@ -80,6 +80,11 @@ import com.lin0721.linmusic.core.ui.components.ToastManager
 import com.lin0721.linmusic.core.ui.components.WebViewLoginScreen
 import com.lin0721.linmusic.core.ui.interaction.pressable
 import com.lin0721.linmusic.core.ui.theme.BackgroundDark
+import com.lin0721.linmusic.core.ui.theme.SurfaceDark
+import com.lin0721.linmusic.core.ui.theme.SurfaceLight
+import com.lin0721.linmusic.core.ui.theme.MimikyuYellow
+import com.lin0721.linmusic.core.ui.theme.MimikyuCharcoal
+import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
 import com.lin0721.linmusic.core.ui.theme.MimikyuPress
 import com.lin0721.linmusic.core.ui.theme.MimikyuIcons
 import com.lin0721.linmusic.core.ui.theme.ScreenSlideDurationMs
@@ -142,7 +147,7 @@ fun AccountScreen(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
-                    color = Color(0xFF181818),
+                    color = SurfaceDark,
                     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
                 ) {
                     if (isLoggedIn) {
@@ -181,7 +186,7 @@ fun AccountScreen(
                                         Icon(
                                             imageVector = Icons.Rounded.Person,
                                             contentDescription = null,
-                                            tint = Color.White,
+                                            tint = MimikyuSilver,
                                             modifier = Modifier.size(38.dp)
                                         )
                                     }
@@ -193,7 +198,7 @@ fun AccountScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = userProfile?.nickname.orEmpty(),
-                                        color = Color.White,
+                                        color = MimikyuSilver,
                                         fontSize = 20.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
@@ -206,7 +211,7 @@ fun AccountScreen(
                                     if (usernameHandle.isNotBlank()) {
                                         Text(
                                             text = "@$usernameHandle",
-                                            color = Color(0xFFFF007F),
+                                            color = MimikyuYellow,
                                             fontSize = 13.5.sp,
                                             fontWeight = FontWeight.Medium,
                                             maxLines = 1,
@@ -244,7 +249,7 @@ fun AccountScreen(
                                         Icon(
                                             imageVector = Icons.Default.Share,
                                             contentDescription = "Share Profile",
-                                            tint = Color.White,
+                                            tint = MimikyuSilver,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
@@ -257,7 +262,7 @@ fun AccountScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color(0xFF222222), RoundedCornerShape(12.dp))
+                                    .background(SurfaceLight, RoundedCornerShape(12.dp))
                                     .padding(vertical = 10.dp, horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
@@ -270,7 +275,7 @@ fun AccountScreen(
                                 ) {
                                     Text(
                                         text = "$followersCount",
-                                        color = Color.White,
+                                        color = MimikyuSilver,
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -296,7 +301,7 @@ fun AccountScreen(
                                 ) {
                                     Text(
                                         text = "$followingCount",
-                                        color = Color.White,
+                                        color = MimikyuSilver,
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -335,7 +340,7 @@ fun AccountScreen(
 
                             Text(
                                 text = "Sign in to Mimikyu",
-                                color = Color.White,
+                                color = MimikyuSilver,
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -361,15 +366,16 @@ fun AccountScreen(
                                     .fillMaxWidth()
                                     .height(48.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFE50914),
-                                    contentColor = Color.White
+                                    containerColor = MimikyuYellow,
+                                    contentColor = MimikyuCharcoal
                                 ),
                                 shape = RoundedCornerShape(24.dp)
                             ) {
                                 Text(
                                     text = "Log In or Sign Up",
                                     fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    color = MimikyuCharcoal
                                 )
                             }
                         }
@@ -386,7 +392,7 @@ fun AccountScreen(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
-                    color = Color(0xFF181818),
+                    color = SurfaceDark,
                     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
                 ) {
                     Column(
@@ -430,22 +436,23 @@ fun AccountScreen(
                             .fillMaxWidth()
                             .height(48.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF282828),
-                            contentColor = Color(0xFFFF5252)
+                            containerColor = MimikyuYellow,
+                            contentColor = MimikyuCharcoal
                         ),
                         shape = RoundedCornerShape(24.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Logout,
                             contentDescription = "Sign Out",
-                            tint = Color(0xFFFF5252),
+                            tint = MimikyuCharcoal,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Sign Out",
                             fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold,
+                            color = MimikyuCharcoal
                         )
                     }
                 }
@@ -519,7 +526,7 @@ private fun SocialFollowersSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF1E1E1E),
+        containerColor = SurfaceDark,
         dragHandle = null
     ) {
         Column(
@@ -537,12 +544,12 @@ private fun SocialFollowersSheet(
             ) {
                 Text(
                     text = if (sheetType == SocialSheetType.FOLLOWERS) "Followers" else "Following",
-                    color = Color.White,
+                    color = MimikyuSilver,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = MimikyuSilver)
                 }
             }
 
@@ -561,9 +568,9 @@ private fun SocialFollowersSheet(
                             onClick = { followingFilter = filter },
                             label = { Text(filter) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFFFF007F),
-                                selectedLabelColor = Color.Black,
-                                containerColor = Color(0xFF2A2A2A),
+                                selectedContainerColor = MimikyuYellow,
+                                selectedLabelColor = MimikyuCharcoal,
+                                containerColor = Color(0xFF18232C),
                                 labelColor = Color.White
                             ),
                             shape = RoundedCornerShape(20.dp)
@@ -648,7 +655,7 @@ private fun SocialFollowersSheet(
                                 val badgeText = if (item.type == "artist") "Artist" else if (item.username.isNotBlank()) "@${item.username}" else "Friend"
                                 Text(
                                     text = badgeText,
-                                    color = if (item.type == "artist") Color(0xFFFF007F) else Color(0xFF888888),
+                                    color = if (item.type == "artist") MimikyuYellow else Color(0xFF888888),
                                     fontSize = 12.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -702,7 +709,7 @@ private fun AccountNavigationRow(
 
         Text(
             text = title,
-            color = Color.White,
+            color = MimikyuSilver,
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.weight(1f)

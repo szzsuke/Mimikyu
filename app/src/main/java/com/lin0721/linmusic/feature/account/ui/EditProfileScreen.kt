@@ -61,6 +61,7 @@ import com.lin0721.linmusic.core.auth.UserProfile
 import com.lin0721.linmusic.core.friend.FriendManager
 import com.lin0721.linmusic.core.ui.components.ToastManager
 import com.lin0721.linmusic.core.ui.theme.BackgroundDark
+import com.lin0721.linmusic.core.ui.theme.MimikyuYellow
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -177,7 +178,7 @@ fun EditProfileScreen(
                 ) {
                     if (isSaving) {
                         CircularProgressIndicator(
-                            color = Color(0xFF1DB954),
+                            color = MimikyuYellow,
                             modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp
                         )
@@ -185,7 +186,7 @@ fun EditProfileScreen(
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = "Save",
-                            tint = if (canSave) Color(0xFF1DB954) else Color.Gray
+                            tint = if (canSave) MimikyuYellow else Color.Gray
                         )
                     }
                 }

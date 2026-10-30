@@ -49,6 +49,38 @@ fun ImportPlaylistDialog(
     var progressTotal by remember { mutableIntStateOf(0) }
     var importResults by remember { mutableStateOf<List<ImportPlaylistResult>?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var linkUrlText by remember { mutableStateOf("") }
+
+    val handleLinkImport: () -> Unit = {
+        val input = linkUrlText.trim()
+        if (input.isNotBlank()) {
+            isImporting = true
+            errorMessage = null
+            importResults = null
+            coroutineScope.launch {
+                importer.importFromLinkUrl(
+                    urlOrId = input,
+                    onProgress = { status, cur, tot ->
+                        currentStatus = status
+                        progressCurrent = cur
+                        progressTotal = tot
+                    }
+                ).onSuccess { results ->
+                    isImporting = false
+                    importResults = results
+                    val hasLikedSongs = results.any { it.playlistId == 0L || it.playlistName.equals("Liked Songs", ignoreCase = true) }
+                    if (hasLikedSongs) {
+                        ToastManager.showToast("Imported tracks directly to your Liked Songs!")
+                    } else {
+                        ToastManager.showToast("Imported ${results.size} playlist(s) to your cloud account!")
+                    }
+                }.onFailure { err ->
+                    isImporting = false
+                    errorMessage = err.message ?: "Failed to import from link"
+                }
+            }
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -188,7 +220,7 @@ fun ImportPlaylistDialog(
                             Icon(
                                 imageVector = if (isLikedSongs) Icons.Default.Favorite else Icons.AutoMirrored.Outlined.QueueMusic,
                                 contentDescription = null,
-                                tint = if (isLikedSongs) Color(0xFFE91E63) else MaterialTheme.colorScheme.primary,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(Modifier.width(12.dp))
@@ -258,7 +290,61 @@ fun ImportPlaylistDialog(
                     )
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
+
+                // Universal Link Input Field
+                OutlinedTextField(
+                    value = linkUrlText,
+                    onValueChange = { linkUrlText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Paste playlist, album, or track link", fontSize = 13.sp) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    trailingIcon = {
+                        if (linkUrlText.isNotBlank()) {
+                            IconButton(onClick = { linkUrlText = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                MimikyuButton(
+                    onClick = { handleLinkImport() },
+                    enabled = linkUrlText.isNotBlank(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(PillRadius)
+                ) {
+                    Text(
+                        text = "Import from Link",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HorizontalDivider(modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.15f))
+                    Text(
+                        text = "  OR  ",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    HorizontalDivider(modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.15f))
+                }
+
+                Spacer(Modifier.height(16.dp))
 
                 // Select File Button
                 MimikyuButton(

@@ -334,7 +334,7 @@ fun PlayQueueSheet(
                                     id = item.songId,
                                     title = item.title,
                                     artist = item.artist,
-                                    coverUrl = rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri)
+                                    coverUrl = rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri, item.title, item.artist)
                                 ),
                                 isCurrent = false,
                                 isPlaying = false,
@@ -364,7 +364,8 @@ fun PlayQueueSheet(
                                     title = queue[currentIndex].title,
                                     artist = queue[currentIndex].artist,
                                     coverUrl = rememberQueueItemCoverUrl(
-                                        queue[currentIndex].coverUrl, queue[currentIndex].songId, queue[currentIndex].localUri
+                                        queue[currentIndex].coverUrl, queue[currentIndex].songId, queue[currentIndex].localUri,
+                                        queue[currentIndex].title, queue[currentIndex].artist
                                     )
                                 ),
                                 isCurrent = true,
@@ -397,7 +398,8 @@ fun PlayQueueSheet(
                                         title = queue[currentIndex].title,
                                         artist = queue[currentIndex].artist,
                                         coverUrl = rememberQueueItemCoverUrl(
-                                            queue[currentIndex].coverUrl, queue[currentIndex].songId, queue[currentIndex].localUri
+                                            queue[currentIndex].coverUrl, queue[currentIndex].songId, queue[currentIndex].localUri,
+                                            queue[currentIndex].title, queue[currentIndex].artist
                                         )
                                     ),
                                     isCurrent = true,
@@ -455,7 +457,7 @@ fun PlayQueueSheet(
                                             id = item.songId,
                                             title = item.title,
                                             artist = item.artist,
-                                            coverUrl = rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri)
+                                            coverUrl = rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri, item.title, item.artist)
                                         ),
                                         isCurrent = false,
                                         isPlaying = false,

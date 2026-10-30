@@ -7,6 +7,7 @@ import com.lin0721.linmusic.core.model.PlaylistDetail
 import com.lin0721.linmusic.core.model.Track
 import com.lin0721.linmusic.core.network.mapToAppError
 import com.lin0721.linmusic.core.metadata.cleanMetadataText
+import com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist
 import com.lin0721.linmusic.core.player.innertube.YouTubeIdRegistry
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
@@ -20,6 +21,8 @@ import com.lin0721.linmusic.feature.search.domain.SearchPageResult
 import com.lin0721.linmusic.feature.search.domain.SearchResultItem
 import com.lin0721.linmusic.feature.search.domain.SearchSuggestion
 import com.lin0721.linmusic.feature.search.domain.SearchType
+import com.lin0721.linmusic.core.metadata.YouTubeThumbnailUpscaler
+import com.lin0721.linmusic.core.metadata.SongArtworkEngine
 import com.lin0721.linmusic.core.metadata.MetadataEnricher
 import com.lin0721.linmusic.core.lastfm.LastFmRepository
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +46,8 @@ private const val TAG = "SearchRepositoryImpl"
 class SearchRepositoryImpl(
     private val lastFmRepository: LastFmRepository? = null,
     private val metadataEnricher: MetadataEnricher? = null,
-    ) : SearchRepository {
+    private val auroraApiClient: com.lin0721.linmusic.core.aurora.AuroraApiClient? = null,
+) : SearchRepository {
 
     override fun getDefaultSearchKeyword(): Flow<Result<String>> = flow {
         emit(Result.success(""))
@@ -51,16 +55,116 @@ class SearchRepositoryImpl(
 
     override fun search(keyword: String, type: SearchType, offset: Int, limit: Int): Flow<Result<SearchPageResult>> = flow {
         val filter = when (type) {
+            SearchType.ALL -> YouTube.SearchFilter("")
             SearchType.SONG -> YouTube.SearchFilter.FILTER_SONG
             SearchType.ALBUM -> YouTube.SearchFilter.FILTER_ALBUM
             SearchType.ARTIST -> YouTube.SearchFilter.FILTER_ARTIST
             SearchType.PLAYLIST -> YouTube.SearchFilter.FILTER_COMMUNITY_PLAYLIST
         }
 
-        val result = YouTube.search(keyword, filter).getOrThrow()
+        val result = runCatching {
+            YouTube.search(keyword, filter).getOrThrow()
+        }.recoverCatching { err ->
+            AppLogger.w(TAG, "Search with filter $filter failed, retrying without filter", err)
+            YouTube.search(keyword, YouTube.SearchFilter("")).getOrThrow()
+        }.getOrThrow()
         val items = result.items
 
         val mapped: List<SearchResultItem> = when (type) {
+            SearchType.ALL -> {
+                val songs = items.filterIsInstance<SongItem>().take(10).map { song ->
+                    val (cleanTitle, cleanArtist) = extractCleanTitleAndArtist(
+                        song.title,
+                        song.artists.joinToString(", ") { it.name }
+                    )
+                    val cleanAlbumName = cleanMetadataText(song.album?.name ?: cleanTitle)
+                    val cachedStudio = SongArtworkEngine.getCachedCoverArt(cleanTitle, cleanArtist)
+                    val cover = cachedStudio ?: SongArtworkEngine.optimizeArtworkUrl(song.thumbnail, 544)
+                    val durationSec = song.duration ?: 0
+                    val realArtistNames = cleanArtist.split(",", "&", "/").map { it.trim() }.filter { it.isNotBlank() }
+                    val mappedArtists = if (realArtistNames.isNotEmpty()) {
+                        realArtistNames.map { name ->
+                            val aId = YouTubeIdRegistry.registerArtistByName(name)
+                            Artist(id = aId, name = name)
+                        }
+                    } else {
+                        song.artists.map {
+                            val aId = it.id?.let { id -> YouTubeIdRegistry.registerArtist(id, it.name) }
+                                ?: YouTubeIdRegistry.registerArtistByName(it.name)
+                            Artist(id = aId, name = cleanMetadataText(it.name))
+                        }
+                    }
+                    val songId = YouTubeIdRegistry.register(
+                        videoId = song.id,
+                        title = cleanTitle,
+                        artist = cleanArtist,
+                        durationSec = durationSec,
+                        album = cleanAlbumName,
+                        coverUrl = cover,
+                        artists = mappedArtists
+                    )
+                    val track = Track(
+                        id = songId,
+                        name = cleanTitle,
+                        ar = mappedArtists,
+                        al = Album(
+                            id = (song.album?.id ?: "").hashCode().toLong() and 0x7FFFFFFFL,
+                            name = cleanAlbumName,
+                            picUrl = cover
+                        ),
+                        dt = durationSec * 1000L
+                    )
+                    YouTubeIdRegistry.registerTrack(track)
+                    SearchResultItem.SongItem(track)
+                }
+
+                val artists = items.filterIsInstance<ArtistItem>().take(5).map { artist ->
+                    val artistId = YouTubeIdRegistry.registerArtist(artist.id, artist.title)
+                    val avatar = SongArtworkEngine.optimizeArtworkUrl(artist.thumbnail ?: "", 544)
+                    SearchResultItem.ArtistItem(
+                        Artist(
+                            id = artistId,
+                            name = cleanMetadataText(artist.title),
+                            picUrl = avatar,
+                            img1v1Url = avatar
+                        )
+                    )
+                }
+
+                val albums = items.filterIsInstance<AlbumItem>().take(5).map { album ->
+                    val albumId = YouTubeIdRegistry.registerAlbum(album.browseId)
+                    val cover = SongArtworkEngine.optimizeArtworkUrl(album.thumbnail, 544)
+                    SearchResultItem.AlbumItem(
+                        Album(
+                            id = albumId,
+                            name = cleanMetadataText(album.title),
+                            picUrl = cover,
+                            artists = album.artists?.map {
+                                Artist(id = (it.id ?: it.name).hashCode().toLong() and 0x7FFFFFFFL, name = cleanMetadataText(it.name))
+                            } ?: emptyList()
+                        )
+                    )
+                }
+
+                val playlists = items.filterIsInstance<PlaylistItem>().take(5).map { playlist ->
+                    val playlistId = YouTubeIdRegistry.registerPlaylist(playlist.id)
+                    val cover = SongArtworkEngine.optimizeArtworkUrl(playlist.thumbnail ?: "", 544)
+                    SearchResultItem.PlaylistItem(
+                        PlaylistDetail(
+                            id = playlistId,
+                            name = cleanMetadataText(playlist.title),
+                            coverImgUrl = cover,
+                            trackCount = playlist.songCountText?.filter { it.isDigit() }?.toIntOrNull() ?: 0,
+                            creator = com.lin0721.linmusic.core.model.PlaylistCreator(
+                                userId = playlist.author?.id.hashCode().toLong() and 0x7FFFFFFFL,
+                                nickname = cleanMetadataText(playlist.author?.name ?: "")
+                            )
+                        )
+                    )
+                }
+
+                songs + artists + albums + playlists
+            }
             SearchType.SONG -> {
                 val isExplicitLiveSearch = keyword.contains("live", ignoreCase = true)
                 val isExplicitAcousticSearch = keyword.contains("acoustic", ignoreCase = true)
@@ -132,22 +236,32 @@ class SearchRepositoryImpl(
                 }
 
                 val songTracks = deduplicatedSongs.map { song ->
-                    val cleanTitle = cleanMetadataText(song.title)
-                    val artistName = cleanMetadataText(song.artists.joinToString(", ") { cleanMetadataText(it.name) })
+                    val (cleanTitle, cleanArtist) = extractCleanTitleAndArtist(
+                        song.title,
+                        song.artists.joinToString(", ") { it.name }
+                    )
                     val durationSec = song.duration ?: 0
-                    val mappedArtists = song.artists.map {
-                        val aId = it.id?.let { id -> YouTubeIdRegistry.registerArtist(id, it.name) }
-                            ?: YouTubeIdRegistry.registerArtistByName(it.name)
-                        Artist(id = aId, name = cleanMetadataText(it.name))
+                    val realArtistNames = cleanArtist.split(",", "&", "/").map { it.trim() }.filter { it.isNotBlank() }
+                    val mappedArtists = if (realArtistNames.isNotEmpty()) {
+                        realArtistNames.map { name ->
+                            val aId = YouTubeIdRegistry.registerArtistByName(name)
+                            Artist(id = aId, name = name)
+                        }
+                    } else {
+                        song.artists.map {
+                            val aId = it.id?.let { id -> YouTubeIdRegistry.registerArtist(id, it.name) }
+                                ?: YouTubeIdRegistry.registerArtistByName(it.name)
+                            Artist(id = aId, name = cleanMetadataText(it.name))
+                        }
                     }
                     val cleanAlbumName = cleanMetadataText(song.album?.name ?: "")
-                    val cached = metadataEnricher?.getCachedByQuery(cleanTitle, artistName)
-                    val bestCover = cached?.artworkUrl ?: song.thumbnail
+                    val cachedStudio = SongArtworkEngine.getCachedCoverArt(cleanTitle, cleanArtist)
+                    val bestCover = cachedStudio ?: (YouTubeThumbnailUpscaler.upscale(song.thumbnail) ?: song.thumbnail)
 
                     val songId = YouTubeIdRegistry.register(
                         videoId = song.id,
                         title = cleanTitle,
-                        artist = artistName,
+                        artist = cleanArtist,
                         durationSec = durationSec,
                         album = cleanAlbumName,
                         coverUrl = bestCover,
@@ -187,71 +301,8 @@ class SearchRepositoryImpl(
                     songTracks
                 }
 
-                // Verify artwork and metadata via iTunes & MusicBrainz
-                val verifiedSongItems = if (metadataEnricher != null && rankedTracks.isNotEmpty()) {
-                    coroutineScope {
-                        rankedTracks.mapIndexed { index, track ->
-                            val artistName = track.ar.firstOrNull()?.name.orEmpty()
-                            val cached = metadataEnricher.getCached(track.id.toString())
-                                ?: metadataEnricher.getCachedByQuery(track.name, artistName)
-
-                            if (cached != null) {
-                                async {
-                                    val updatedTrack = track.copy(
-                                        name = cached.title.ifBlank { track.name },
-                                        ar = if (cached.artist.isNotBlank()) listOf(Artist(id = track.ar.firstOrNull()?.id ?: 0L, name = cached.artist)) else track.ar,
-                                        al = track.al.copy(
-                                            name = cached.albumName?.ifBlank { track.al.name } ?: track.al.name,
-                                            picUrl = cached.artworkUrl ?: track.al.picUrl
-                                        )
-                                    )
-                                    SearchResultItem.SongItem(updatedTrack)
-                                }
-                            } else if (index < 6) {
-                                async {
-                                    val enriched = runCatching {
-                                        withTimeoutOrNull(1000) {
-                                            metadataEnricher.resolve(
-                                                songId = track.id.toString(),
-                                                title = track.name,
-                                                artist = artistName,
-                                                album = track.al.name,
-                                                fallbackCoverUrl = track.al.picUrl,
-                                                durationMs = track.dt
-                                            )
-                                        }
-                                    }.getOrNull()
-
-                                    if (enriched != null && enriched.isEnriched) {
-                                        val updatedTrack = track.copy(
-                                            name = enriched.title.ifBlank { track.name },
-                                            ar = if (enriched.artist.isNotBlank()) listOf(Artist(id = track.ar.firstOrNull()?.id ?: 0L, name = enriched.artist)) else track.ar,
-                                            al = track.al.copy(
-                                                name = enriched.albumName?.ifBlank { track.al.name } ?: track.al.name,
-                                                picUrl = enriched.artworkUrl ?: track.al.picUrl
-                                            )
-                                        )
-                                        SearchResultItem.SongItem(updatedTrack)
-                                    } else {
-                                        SearchResultItem.SongItem(track)
-                                    }
-                                }
-                            } else {
-                                metadataEnricher.enrichInBackground(
-                                    songId = track.id.toString(),
-                                    title = track.name,
-                                    artist = artistName,
-                                    album = track.al.name,
-                                    fallbackCoverUrl = track.al.picUrl,
-                                    durationMs = track.dt
-                                )
-                                async { SearchResultItem.SongItem(track) }
-                            }
-                        }.map { it.await() }
-                    }
-                } else {
-                    rankedTracks.map { SearchResultItem.SongItem(it) }
-                }
+                // Keep YouTube metadata pristine without external overrides
+                val verifiedSongItems = rankedTracks.map { SearchResultItem.SongItem(it) }
 
                 // Place matched artist at the top of results when searching an artist, followed by their songs
                 val artistPrefix = if (offset == 0) {
@@ -321,10 +372,19 @@ class SearchRepositoryImpl(
             }
         }
 
+        val distinctMapped = mapped.distinctBy { item ->
+            when (item) {
+                is SearchResultItem.SongItem -> "song_${item.track.id}"
+                is SearchResultItem.AlbumItem -> "album_${item.album.id}"
+                is SearchResultItem.ArtistItem -> "artist_${item.artist.id}"
+                is SearchResultItem.PlaylistItem -> "playlist_${item.playlist.id}"
+            }
+        }
+
         emit(Result.success(
             SearchPageResult(
-                items = mapped,
-                totalCount = mapped.size,
+                items = distinctMapped,
+                totalCount = distinctMapped.size,
                 hasMore = result.continuation != null,
                 rawFetchedCount = mapped.size
             )
@@ -363,7 +423,7 @@ class SearchRepositoryImpl(
                         SearchSuggestion.ArtistMatch(
                             id = artistId,
                             text = cleanMetadataText(item.title),
-                            avatarUrl = item.thumbnail ?: ""
+                            avatarUrl = SongArtworkEngine.optimizeArtworkUrl(item.thumbnail ?: "", 544)
                         )
                     )
                 }
@@ -389,8 +449,7 @@ class SearchRepositoryImpl(
                             Artist(id = aId, name = cleanMetadataText(it.name))
                         }
                         val cleanAlbumName = cleanMetadataText(item.album?.name ?: "")
-                        val cached = metadataEnricher?.getCachedByQuery(cleanTitle, artistName)
-                        val bestCover = cached?.artworkUrl ?: item.thumbnail
+                        val bestCover = SongArtworkEngine.optimizeArtworkUrl(item.thumbnail, 544)
 
                         val songId = YouTubeIdRegistry.register(
                             videoId = item.id,
@@ -437,70 +496,38 @@ class SearchRepositoryImpl(
             }
         }
 
-        emit(Result.success(artistSuggestions + albumSuggestions + songSuggestions + keywordSuggestions))
+        val allSuggestions = (artistSuggestions + albumSuggestions + songSuggestions + keywordSuggestions).distinctBy { suggestion ->
+            when (suggestion) {
+                is SearchSuggestion.ArtistMatch -> "artist_${suggestion.id}"
+                is SearchSuggestion.AlbumMatch -> "album_${suggestion.id}"
+                is SearchSuggestion.SongMatch -> "song_${suggestion.id}"
+                is SearchSuggestion.Keyword -> "keyword_${suggestion.text.lowercase().trim()}"
+            }
+        }
+
+        emit(Result.success(allSuggestions))
     }.catch { e ->
         AppLogger.w(TAG, "YouTube Music suggestions failed", e)
         emit(Result.failure(mapToAppError(e)))
     }
 
     override fun getHotSearches(): Flow<Result<List<HotSearch>>> = flow {
-        // Fetch top songs ranked from iTunes Top Songs RSS feed
-        val itunesResult = runCatching {
-            withContext(Dispatchers.IO) {
-                val url = "https://itunes.apple.com/us/rss/topsongs/limit=30/json"
-                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 4000
-                    readTimeout = 4000
-                    setRequestProperty("User-Agent", "MimikyuApp/1.0 (contact@mimikyumusic.org)")
+        // Fetch top trending songs directly from YouTube Music
+        val ytResult = runCatching {
+            val homeResult = YouTube.home().getOrThrow()
+            homeResult.sections
+                .flatMap { section -> section.items.filterIsInstance<SongItem>() }
+                .take(30)
+                .mapIndexed { index, song ->
+                    HotSearch(
+                        keyword = "${song.title} - ${song.artists.firstOrNull()?.name ?: ""}",
+                        score = 100 - index,
+                        description = song.artists.firstOrNull()?.name.orEmpty(),
+                        iconUrl = null
+                    )
                 }
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                conn.disconnect()
-
-                val json = JSONObject(body)
-                val entries = json.optJSONObject("feed")?.optJSONArray("entry")
-                val list = mutableListOf<HotSearch>()
-                if (entries != null) {
-                    for (i in 0 until entries.length()) {
-                        val entry = entries.optJSONObject(i) ?: continue
-                        val title = entry.optJSONObject("im:name")?.optString("label").orEmpty()
-                        val artist = entry.optJSONObject("im:artist")?.optString("label").orEmpty()
-                        val images = entry.optJSONArray("im:image")
-                        val cover = images?.optJSONObject(images.length() - 1)?.optString("label").orEmpty()
-                        if (title.isNotBlank()) {
-                            val keyword = if (artist.isNotBlank()) "$title - $artist" else title
-                            list.add(
-                                HotSearch(
-                                    keyword = keyword,
-                                    score = 100 - i,
-                                    description = artist,
-                                    iconUrl = null
-                                )
-                            )
-                        }
-                    }
-                }
-                list
-            }
-        }.getOrNull()
-
-        if (!itunesResult.isNullOrEmpty()) {
-            emit(Result.success(itunesResult))
-        } else {
-            // Fallback to YouTube Music trending if iTunes feed is unreachable
-            val ytResult = runCatching {
-                val homeResult = YouTube.home().getOrThrow()
-                homeResult.sections
-                    .flatMap { section -> section.items.filterIsInstance<SongItem>() }
-                    .take(20)
-                    .mapIndexed { index, song ->
-                        HotSearch(
-                            keyword = "${song.title} - ${song.artists.firstOrNull()?.name ?: ""}",
-                            score = 100 - index
-                        )
-                    }
-            }.getOrDefault(emptyList())
-            emit(Result.success(ytResult))
-        }
+        }.getOrDefault(emptyList())
+        emit(Result.success(ytResult))
     }
 
     override fun getPlaylistTags(): Flow<Result<List<PlaylistTag>>> = flow {

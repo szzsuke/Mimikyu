@@ -26,6 +26,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lin0721.linmusic.core.ui.theme.NeteaseRed
 import com.lin0721.linmusic.core.ui.theme.RobotoFontFamily
+import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
+import com.lin0721.linmusic.core.ui.theme.MimikyuCharcoal
 
 @Composable
 fun SectionHeader(title: String, showAction: Boolean = true) {
@@ -64,16 +66,11 @@ fun LoadingIndicator(modifier: Modifier = Modifier) {
     }
 }
 
-/**
- * Spotify-style clean empty/error state.
- * Displays "That didn't work right", "A quick refresh might fix it.", and a pill-shaped
- * Refresh button styled with Melodia's accent color (NeteaseRed / MimikyuMagenta).
- */
 @Composable
-fun SpotifyStyleErrorState(
+fun CleanErrorState(
     modifier: Modifier = Modifier,
-    title: String = "That didn't work right",
-    subtitle: String = "A quick refresh might fix it.",
+    title: String = "Something went wrong",
+    subtitle: String = "Please try again in a moment.",
     buttonText: String = "Refresh",
     onRefresh: () -> Unit
 ) {
@@ -86,8 +83,8 @@ fun SpotifyStyleErrorState(
     ) {
         Text(
             text = title,
-            color = Color.White,
-            fontSize = 22.sp,
+            color = MimikyuSilver,
+            fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = RobotoFontFamily,
             textAlign = TextAlign.Center
@@ -95,25 +92,25 @@ fun SpotifyStyleErrorState(
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = subtitle,
-            color = Color.White.copy(alpha = 0.7f),
+            color = MimikyuSilver.copy(alpha = 0.75f),
             fontSize = 14.sp,
             fontFamily = RobotoFontFamily,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         Button(
             onClick = onRefresh,
             shape = RoundedCornerShape(percent = 50),
             colors = ButtonDefaults.buttonColors(
-                containerColor = NeteaseRed,
-                contentColor = Color.White
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = Color.Black
             ),
-            contentPadding = PaddingValues(horizontal = 36.dp, vertical = 13.dp)
+            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp)
         ) {
             Text(
                 text = buttonText,
-                color = Color.White,
-                fontSize = 15.sp,
+                color = Color.Black,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = RobotoFontFamily
             )
@@ -122,9 +119,27 @@ fun SpotifyStyleErrorState(
 }
 
 @Composable
+fun SpotifyStyleErrorState(
+    modifier: Modifier = Modifier,
+    title: String = "Something went wrong",
+    subtitle: String = "Please try again in a moment.",
+    buttonText: String = "Refresh",
+    onRefresh: () -> Unit
+) {
+    CleanErrorState(
+        modifier = modifier,
+        title = title,
+        subtitle = subtitle,
+        buttonText = buttonText,
+        onRefresh = onRefresh
+    )
+}
+
+@Composable
 fun ErrorContent(
     message: String = "",
     onRetry: () -> Unit
 ) {
-    SpotifyStyleErrorState(onRefresh = onRetry)
+    CleanErrorState(onRefresh = onRetry)
 }
+

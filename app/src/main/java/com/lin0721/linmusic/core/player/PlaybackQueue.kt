@@ -299,6 +299,14 @@ class PlaybackQueue {
         _items.value = playItems
     }
 
+    // Append items to the end of the queue without truncating existing items
+    fun append(items: List<QueueItem>) {
+        if (items.isEmpty()) return
+        originalItems = originalItems + items
+        playItems = playItems + items
+        _items.value = playItems
+    }
+
     // CurrentQueue and Play，/Heartbeat Mode
     fun takeSnapshot() {
         snapshotItems = originalItems

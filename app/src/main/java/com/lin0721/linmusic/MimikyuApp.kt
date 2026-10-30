@@ -261,7 +261,7 @@ fun MimikyuApp() {
     var showOnboardingLoginSheet by remember { mutableStateOf(false) }
 
     if (hasSeenOnboardingState.value == null) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+        Box(modifier = Modifier.fillMaxSize().background(BackgroundDark))
         return
     }
 
@@ -359,6 +359,7 @@ fun MimikyuApp() {
                                     onOpenSidebar = { },
                                     onLoginScreenVisibilityChanged = { isLoginScreenVisible = it },
                                     onNavigateToLikedSongs = { navigation.openLikedSongs() },
+                                    onNavigateToDownloadedSongs = { navigation.openDownloadedSongs() },
                                     onNavigateToPlaylist = { id, isAlbum -> navigation.openPlaylist(id, isAlbum) },
                                     onNavigateToArtist = { id -> navigation.openArtist(id) },
                                     onNavigateToMv = { id, name -> navigation.openMvPlayer(id, name) },

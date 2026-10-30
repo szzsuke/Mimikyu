@@ -70,7 +70,8 @@ class HomeViewModel(
     private val songLikeRepository: SongLikeRepository,
     private val playlistMutationBus: PlaylistMutationBus,
     private val songCollectDelegate: SongCollectDelegate,
-    private val dailyMixGenerator: com.lin0721.linmusic.core.player.recommendation.DailyMixGenerator
+    private val userPlaylistRepository: com.lin0721.linmusic.core.userplaylist.UserPlaylistRepository,
+    private val youTubeAccountSyncUseCase: com.lin0721.linmusic.core.auth.YouTubeAccountSyncUseCase? = null
 ) : ViewModel() {
 
     private val homeShelfCacheStore = HomeShelfCacheStore(context)
@@ -96,16 +97,34 @@ class HomeViewModel(
     val likedTracks: StateFlow<List<Track>> = userPreferences.likedTracks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val recentRecords: StateFlow<List<com.lin0721.linmusic.core.auth.RecentPlayRecord>> = userPreferences.recentRecords
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _userPlaylists = MutableStateFlow<List<com.lin0721.linmusic.core.userplaylist.UserPlaylist>>(emptyList())
+    val userPlaylists: StateFlow<List<com.lin0721.linmusic.core.userplaylist.UserPlaylist>> = _userPlaylists.asStateFlow()
+
     val collectState: StateFlow<PlaylistCollectState> = songCollectDelegate.state
+
 
     init {
         loadHomeData()
+        loadUserPlaylists()
         viewModelScope.launch {
             playerManager.initController()
         }
         viewModelScope.launch {
             likedSongsRepository.errorEvents.collect { errorMsg ->
                 _toastEvent.emit(errorMsg)
+            }
+        }
+        viewModelScope.launch {
+            userPreferences.userProfile.collect {
+                loadUserPlaylists()
+            }
+        }
+        viewModelScope.launch {
+            playlistMutationBus.events.collect {
+                loadUserPlaylists()
             }
         }
         // ponytail: simple delay loop, no WorkManager. Reuses existing refreshHomeData().
@@ -142,6 +161,18 @@ class HomeViewModel(
         }
     }
 
+    fun loadUserPlaylists() {
+        viewModelScope.launch {
+            val uid = userProfile.value?.uid ?: 0L
+            userPlaylistRepository.getUserPlaylists(uid).collect { result ->
+                result.onSuccess { list ->
+                    // Order of how frequently user listens to them (playCount descending)
+                    _userPlaylists.value = list.sortedByDescending { it.playCount }
+                }
+            }
+        }
+    }
+
     fun loadHomeData(refresh: Boolean = false) {
         viewModelScope.launch {
             if (!refresh) {
@@ -151,9 +182,6 @@ class HomeViewModel(
                 }
                 if (cached != null) {
                     _uiState.value = HomeUiState.Success(cached)
-                    cached.dailyMixes.firstOrNull()?.tracks?.take(3)?.let { topTracks ->
-                        playerManager.preResolveTracks(topTracks)
-                    }
                 } else {
                     _uiState.value = HomeUiState.Loading
                 }
@@ -161,17 +189,14 @@ class HomeViewModel(
                 _isRefreshing.value = true
             }
 
-            // 2. Silently fetch fresh Daily Mixes and feed in background on Dispatchers.IO
+            // 2. Fetch fresh feed in background on Dispatchers.IO
             val result = withContext(Dispatchers.IO) {
                 fetchHomeFeedData(refresh)
             }
             result.fold(
                 onSuccess = { freshData ->
                     _uiState.value = HomeUiState.Success(freshData)
-                    freshData.dailyMixes.firstOrNull()?.tracks?.take(3)?.let { topTracks ->
-                        playerManager.preResolveTracks(topTracks)
-                    }
-                    if (freshData.shelves.isNotEmpty() || freshData.topMixes.isNotEmpty()) {
+                    if (freshData.shelves.isNotEmpty()) {
                         withContext(Dispatchers.IO) {
                             homeShelfCacheStore.saveHomeFeed(freshData)
                         }
@@ -179,7 +204,7 @@ class HomeViewModel(
                 },
                 onFailure = { error ->
                     val current = (_uiState.value as? HomeUiState.Success)?.data
-                    if (current == null || (current.shelves.isEmpty() && current.topMixes.isEmpty())) {
+                    if (current == null || current.shelves.isEmpty()) {
                         _uiState.value = HomeUiState.Error(error.toUserMessage(resourceProvider))
                     } else {
                         AppLogger.w(TAG, "Background home refresh failed: ${error.message}")
@@ -194,6 +219,7 @@ class HomeViewModel(
     fun refreshHomeData() {
         if (_isRefreshing.value) return
         _isRefreshing.value = true
+        loadUserPlaylists()
 
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -202,7 +228,7 @@ class HomeViewModel(
             result.fold(
                 onSuccess = { freshData ->
                     _uiState.value = HomeUiState.Success(freshData)
-                    if (freshData.shelves.isNotEmpty() || freshData.topMixes.isNotEmpty()) {
+                    if (freshData.shelves.isNotEmpty()) {
                         withContext(Dispatchers.IO) {
                             homeShelfCacheStore.saveHomeFeed(freshData)
                         }
@@ -210,7 +236,7 @@ class HomeViewModel(
                 },
                 onFailure = { error ->
                     val current = (_uiState.value as? HomeUiState.Success)?.data
-                    if (current == null || (current.shelves.isEmpty() && current.topMixes.isEmpty())) {
+                    if (current == null || current.shelves.isEmpty()) {
                         _uiState.value = HomeUiState.Error(error.toUserMessage(resourceProvider))
                     } else {
                         _toastEvent.emit(error.toUserMessage(resourceProvider))
@@ -248,16 +274,11 @@ class HomeViewModel(
                     .getOrDefault(Result.success(emptyList<ToplistInfo>()))
             }
 
-            val mimikyuShelvesDeferred = async {
-                runCatching { dailyMixGenerator.generateAllMimikyuShelves() }.getOrNull()
-            }
-
             val blockPageResult = blockPageDeferred.await()
             val playlistsResult = playlistsDeferred.await()
             val recentResult = recentDeferred.await()
             val dailySongsResult = dailySongsDeferred.await()
             val toplistResult = toplistDeferred.await()
-            val mimikyuShelves = mimikyuShelvesDeferred.await()
 
             val blockPage = blockPageResult.getOrNull()
             if (blockPage != null) {
@@ -268,40 +289,8 @@ class HomeViewModel(
                         recentPlaylists = recentResult.getOrDefault(emptyList()),
                         dailySongs = dailySongsResult.getOrDefault(emptyList()),
                         toplistItems = toplistResult.getOrDefault(emptyList()),
-                        dailyMixes = mimikyuShelves?.topMixes.orEmpty(),
-                        topMixes = mimikyuShelves?.topMixes.orEmpty(),
-                        recommendedStations = mimikyuShelves?.recommendedStations.orEmpty(),
-                        bestOfArtists = mimikyuShelves?.bestOfArtists.orEmpty(),
-                        favoriteArtists = mimikyuShelves?.favoriteArtists.orEmpty(),
-                        moreLikeMixes = mimikyuShelves?.moreLikeMixes.orEmpty(),
-                        moreLikeArtistName = mimikyuShelves?.moreLikeArtistName.orEmpty(),
-                        moreLikeArtistCover = mimikyuShelves?.moreLikeArtistCover.orEmpty(),
-                        madeForYourVibe = mimikyuShelves?.madeForYourVibe.orEmpty(),
                         nextCursor = blockPage.nextCursor,
                         hasMore = blockPage.hasMore
-                    )
-                )
-            } else if (mimikyuShelves != null && (mimikyuShelves.topMixes.isNotEmpty() || mimikyuShelves.favoriteArtists.isNotEmpty())) {
-                // If blockPage network call failed or timed out on weak internet, fallback to mimikyu shelves
-                // so the user never sees a broken app state or empty void!
-                Result.success(
-                    HomeFeedData(
-                        shelves = emptyList(),
-                        recommendPlaylists = playlistsResult.getOrNull()?.playlists.orEmpty(),
-                        recentPlaylists = recentResult.getOrDefault(emptyList()),
-                        dailySongs = dailySongsResult.getOrDefault(emptyList()),
-                        toplistItems = toplistResult.getOrDefault(emptyList()),
-                        dailyMixes = mimikyuShelves.topMixes,
-                        topMixes = mimikyuShelves.topMixes,
-                        recommendedStations = mimikyuShelves.recommendedStations,
-                        bestOfArtists = mimikyuShelves.bestOfArtists,
-                        favoriteArtists = mimikyuShelves.favoriteArtists,
-                        moreLikeMixes = mimikyuShelves.moreLikeMixes,
-                        moreLikeArtistName = mimikyuShelves.moreLikeArtistName,
-                        moreLikeArtistCover = mimikyuShelves.moreLikeArtistCover,
-                        madeForYourVibe = mimikyuShelves.madeForYourVibe,
-                        nextCursor = null,
-                        hasMore = false
                     )
                 )
             } else {
@@ -386,8 +375,49 @@ class HomeViewModel(
         playerManager.playWithDynamicRadio(item, context = shelfTitle)
     }
 
+    fun playTrack(track: Track, contextList: List<Track> = emptyList()) {
+        val vid = YouTubeIdRegistry.getVideoId(track.id) ?: track.id.toString()
+        val cover = YouTubeIdRegistry.getCoverUrl(track.id) ?: track.al.picUrl
+        val item = QueueItem(
+            songId = track.id,
+            title = track.name,
+            artist = track.ar.joinToString { it.name },
+            coverUrl = cover,
+            videoId = vid.ifBlank { null },
+            album = track.al.name.takeIf { it.isNotBlank() },
+            durationSec = (track.dt / 1000L).toInt()
+        )
+        if (contextList.size > 1) {
+            val queue = contextList.map { t ->
+                val v = YouTubeIdRegistry.getVideoId(t.id) ?: t.id.toString()
+                val c = YouTubeIdRegistry.getCoverUrl(t.id) ?: t.al.picUrl
+                QueueItem(
+                    songId = t.id,
+                    title = t.name,
+                    artist = t.ar.joinToString { it.name },
+                    coverUrl = c,
+                    videoId = v.ifBlank { null },
+                    album = t.al.name.takeIf { it.isNotBlank() },
+                    durationSec = (t.dt / 1000L).toInt()
+                )
+            }
+            val index = queue.indexOfFirst { it.songId == track.id }.coerceAtLeast(0)
+            playerManager.playQueue(queue, index, playContext = "Home")
+        } else {
+            playerManager.playWithDynamicRadio(item, context = "Home")
+        }
+    }
+
+    fun playLikedSong(song: LikedSong, songs: List<LikedSong> = emptyList()) {
+        val list = if (songs.isNotEmpty()) songs else listOf(song)
+        val queueItems = list.map { it.toQueueItem() }
+        val index = queueItems.indexOfFirst { it.videoId == song.videoId }.coerceAtLeast(0)
+        playerManager.playQueue(queueItems, index, playContext = "Home")
+    }
+
     // Play Liked Songs through normal YouTube Music playback path
     fun playLikedSongs(startIndex: Int = 0, shuffle: Boolean = false) {
+
         val songs = likedSongs.value.filter { it.videoId.isNotBlank() && it.title.isNotBlank() }
         if (songs.isEmpty()) {
             viewModelScope.launch { _toastEvent.emit("No liked songs yet") }
@@ -607,6 +637,20 @@ class HomeViewModel(
             val profile = syncProfileAfterLoginUseCase(cookies) ?: return@launch
             _toastEvent.emit("Logged in successfully. Welcome back, ${profile.nickname}!")
             loadHomeData()
+        }
+    }
+
+    fun connectYouTubeAccount(session: com.lin0721.linmusic.core.ui.components.YouTubeSessionData) {
+        viewModelScope.launch {
+            _toastEvent.emit("Connecting YouTube Music account...")
+            val result = youTubeAccountSyncUseCase?.syncSession(session)
+            if (result?.isSuccess == true) {
+                _toastEvent.emit("YouTube Music connected successfully!")
+            } else {
+                _toastEvent.emit("Connected, refreshing home...")
+            }
+            loadUserPlaylists()
+            loadHomeData(refresh = true)
         }
     }
 

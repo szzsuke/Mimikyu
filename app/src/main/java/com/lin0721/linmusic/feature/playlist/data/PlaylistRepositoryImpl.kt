@@ -98,13 +98,22 @@ class PlaylistRepositoryImpl(
         if (albumPageResult.isSuccess) {
             val result = albumPageResult.getOrThrow()
             val album = result.album
-            val tracks = result.songs.map { song -> song.toTrack() }
+            val albumCover = album.thumbnail?.let { com.lin0721.linmusic.core.metadata.YouTubeThumbnailUpscaler.forPlayer(it) }
+                ?: album.thumbnail
+            val tracks = result.songs.map { song ->
+                val track = song.toTrack()
+                if (track.al.picUrl.isBlank() && !albumCover.isNullOrBlank()) {
+                    track.copy(al = track.al.copy(picUrl = albumCover))
+                } else {
+                    track
+                }
+            }
 
             if (tracks.isNotEmpty()) {
                 val detail = PlaylistDetail(
                     id = id,
                     name = cleanMetadataText(album.title),
-                    coverImgUrl = album.thumbnail ?: tracks.firstOrNull()?.al?.picUrl ?: "",
+                    coverImgUrl = albumCover ?: tracks.firstOrNull()?.al?.picUrl ?: "",
                     description = cleanMetadataText(album.artists?.joinToString(", ") { cleanMetadataText(it.name) } ?: ""),
                     playCount = 0L,
                     tracks = tracks,

@@ -71,20 +71,17 @@ class LoginViewModel(
                     if (error is GetCredentialCancellationException) {
                         AppLogger.i(TAG, "User cancelled Google Sign-In")
                     } else {
-                        AppLogger.w(TAG, "Google Sign-In unavailable, auto-logging in as active device user", error)
-                        viewModelScope.launch {
-                            val fallback = googleAuthManager.signInAsLocalUser()
-                            onSuccess(fallback)
-                        }
+                        AppLogger.w(TAG, "Google Sign-In failed", error)
+                        onError(error.message ?: "Google Sign-In failed")
                     }
                 }
             )
         }
     }
 
-        fun quickLogin(
-        name: String = "Nishkarsh Shrivastava",
-        email: String = "nishkarsh.24bcg10106@vitbhopal.ac.in",
+    fun quickLogin(
+        name: String = "Guest",
+        email: String = "guest@mimikyu.app",
         onSuccess: (UserProfile) -> Unit
     ) {
         viewModelScope.launch {

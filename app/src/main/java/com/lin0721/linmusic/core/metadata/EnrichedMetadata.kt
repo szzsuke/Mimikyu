@@ -17,5 +17,5 @@ data class EnrichedMetadata(
     val genre: String? = null,
     val durationMs: Long? = null,
     val isEnriched: Boolean = false,
-    val artSource: String = "none" // "itunes", "musicbrainz", "youtube", "none"
+    val artSource: String = "none" // "spotify", "itunes", "deezer", "youtube", "none"
 )

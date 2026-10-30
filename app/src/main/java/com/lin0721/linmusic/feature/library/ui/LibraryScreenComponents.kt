@@ -65,6 +65,11 @@ import com.lin0721.linmusic.core.ui.theme.LibraryBlueGreenGradient
 import com.lin0721.linmusic.core.ui.theme.DownloadedGreen
 import com.lin0721.linmusic.core.ui.theme.RadiusCompact
 import com.lin0721.linmusic.core.ui.theme.PillRadius
+import com.lin0721.linmusic.core.ui.theme.LikedSongsAssets
+import com.lin0721.linmusic.R
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 
 // ────────────────────────────────────────────────────────────────────────────
 // ：（）All；，
@@ -282,18 +287,39 @@ fun LibraryItemRow(
                 modifier = Modifier
                     .size(60.dp)
                     .clip(RoundedCornerShape(RadiusCompact))
-                    .background(
-                        Brush.linearGradient(
-                            colors = LibraryVioletGradient
-                        )
-                    ),
+                    .background(Color(0xFF1F1F20)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    painter = painterResource(MimikyuIcons.HeartFilled),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(24.dp)
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(LikedSongsAssets.COVER_URL)
+                        .error(R.drawable.liked_songs_cover)
+                        .fallback(R.drawable.liked_songs_cover)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Liked Songs",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        } else if (item.isDownloadedSongs || item.id == "downloaded_songs") {
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .clip(RoundedCornerShape(RadiusCompact))
+                    .background(Color(0xFF1F1F20)),
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(R.drawable.downloaded_songs_cover)
+                        .error(R.drawable.downloaded_songs_cover)
+                        .fallback(R.drawable.downloaded_songs_cover)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Downloaded Songs",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         } else if (item.id == "-2") {
@@ -408,6 +434,7 @@ fun LibraryGridItem(
         }
         else -> {
             val isLikedSongs = item.isLikedSongs || item.id == "liked_songs" || item.title.equals("Liked Songs", ignoreCase = true)
+            val isDownloadedSongs = item.isDownloadedSongs || item.id == "downloaded_songs" || item.title.equals("Downloaded Songs", ignoreCase = true)
             val isDailyMix = item.title.startsWith("Daily Mix", ignoreCase = true)
             val dailyMixNum = Regex("""\d+""").find(item.title)?.value?.toIntOrNull() ?: 1
             val isGenreMix = item.title.endsWith("Mix", ignoreCase = true)
@@ -426,6 +453,7 @@ fun LibraryGridItem(
                 trackCount = trackCount,
                 coverUrl = item.coverUrl,
                 isLikedSongs = isLikedSongs,
+                isDownloadedSongs = isDownloadedSongs,
                 isDailyMix = isDailyMix,
                 dailyMixNumber = dailyMixNum,
                 isGenreMix = isGenreMix,

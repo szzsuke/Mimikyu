@@ -314,7 +314,8 @@ object YouTube {
         filter: SearchFilter,
     ): Result<SearchResult> =
         runCatching {
-            val response = innerTube.search(WEB_REMIX, query, filter.value).body<SearchResponse>()
+            val filterParam = filter.value.takeIf { it.isNotBlank() }
+            val response = innerTube.search(WEB_REMIX, query, filterParam).body<SearchResponse>()
             val searchItems = mutableListOf<YTItem>()
             var searchContinuation: String? = null
 
@@ -984,7 +985,7 @@ object YouTube {
                 innerTube
                     .browse(
                         client = WEB_REMIX,
-                        browseId = "VL$playlistId",
+                        browseId = if (playlistId.startsWith("VL")) playlistId else "VL$playlistId",
                         setLogin = true,
                     ).body<BrowseResponse>()
             val base =
@@ -1552,7 +1553,12 @@ object YouTube {
                 return@runCatching homeContinuation(continuation).getOrThrow()
             }
 
-            val response = innerTube.browse(WEB_REMIX, browseId = "FEmusic_home", params = params).body<BrowseResponse>()
+            val response = innerTube.browse(
+                client = WEB_REMIX,
+                browseId = "FEmusic_home",
+                params = params,
+                setLogin = innerTube.useLoginForBrowse || innerTube.cookie != null,
+            ).body<BrowseResponse>()
             Timber.d("home() response received")
             val continuation =
                 response.contents
@@ -1594,7 +1600,11 @@ object YouTube {
     private suspend fun homeContinuation(continuation: String): Result<HomePage> =
         runCatching {
             val response =
-                innerTube.browse(WEB_REMIX, continuation = continuation).body<BrowseResponse>()
+                innerTube.browse(
+                    client = WEB_REMIX,
+                    continuation = continuation,
+                    setLogin = innerTube.useLoginForBrowse || innerTube.cookie != null,
+                ).body<BrowseResponse>()
             val continuation =
                 response.continuationContents
                     ?.sectionListContinuation

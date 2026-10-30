@@ -68,6 +68,13 @@ object ArtistPortraitProvider {
         val direct = memoryCache[clean]
         if (direct != null) return direct
 
+        // Check if Apple Artist Art has already resolved this artist
+        val appleHero = AppleArtistArtRepository.cached(artistName)?.heroUrl
+        if (!appleHero.isNullOrBlank()) {
+            memoryCache[clean] = appleHero
+            return appleHero
+        }
+
         // Partial match with word-boundary awareness to avoid cross-artist collisions (e.g., "The Jacksons" matching "Michael Jackson")
         return memoryCache.entries.firstOrNull {
             it.key.length > 3 && (
@@ -81,6 +88,7 @@ object ArtistPortraitProvider {
 
     /**
      * Resolves and returns the high-res official portrait for the artist.
+     * Checks Apple Music first for authentic studio photography, falling back to YouTube Music.
      * Caches result permanently in memory.
      */
     suspend fun getArtistPortrait(artistName: String): String = withContext(Dispatchers.IO) {
@@ -88,6 +96,17 @@ object ArtistPortraitProvider {
         val clean = artistName.lowercase().trim()
         val cached = memoryCache[clean]
         if (cached != null) return@withContext cached
+
+        // 1. Primary: Check authentic Apple Music photographer studio portrait
+        try {
+            val appleArt = AppleArtistArtRepository.artFor(artistName)
+            if (appleArt != null && appleArt.heroUrl.isNotBlank()) {
+                memoryCache[clean] = appleArt.heroUrl
+                return@withContext appleArt.heroUrl
+            }
+        } catch (e: Exception) {
+            AppLogger.d(TAG, "Apple artist portrait lookup failed for $artistName: ${e.message}")
+        }
 
         // Partial match in memory
         val partial = memoryCache.entries.firstOrNull {
@@ -98,13 +117,13 @@ object ArtistPortraitProvider {
             return@withContext partial
         }
 
-        // Fetch official artist avatar from YouTube Music
+        // 2. Fallback: Fetch official artist avatar from YouTube Music, upscaled with BitChord ladder
         try {
             val searchRes = YouTube.search(artistName, YouTube.SearchFilter.FILTER_ARTIST).getOrNull()
             val match = searchRes?.items?.filterIsInstance<ArtistItem>()?.firstOrNull()
             val thumb = match?.thumbnail?.takeIf { it.isNotBlank() }
             if (thumb != null) {
-                val upscaled = YouTubeThumbnailUpscaler.upscale(thumb) ?: thumb
+                val upscaled = YouTubeThumbnailUpscaler.forHeader(thumb) ?: thumb
                 memoryCache[clean] = upscaled
                 return@withContext upscaled
             }
@@ -113,7 +132,7 @@ object ArtistPortraitProvider {
             val songRes = YouTube.search(artistName, YouTube.SearchFilter.FILTER_SONG).getOrNull()
             val songThumb = songRes?.items?.filterIsInstance<com.metrolist.innertube.models.SongItem>()?.firstOrNull()?.thumbnail
             if (!songThumb.isNullOrBlank()) {
-                val upscaled = YouTubeThumbnailUpscaler.upscale(songThumb) ?: songThumb
+                val upscaled = YouTubeThumbnailUpscaler.forHeader(songThumb) ?: songThumb
                 memoryCache[clean] = upscaled
                 return@withContext upscaled
             }

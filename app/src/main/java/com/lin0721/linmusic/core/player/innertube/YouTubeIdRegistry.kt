@@ -61,9 +61,15 @@ object YouTubeIdRegistry {
         artists: List<Artist> = emptyList()
     ): Long {
         val cleanVid = sanitizeVideoId(videoId)
-        val cleanT = cleanMetadataText(title)
-        val cleanA = cleanMetadataText(artist)
+        val (extractedTitle, extractedArtist) = com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist(title, artist)
+        val cleanT = cleanMetadataText(extractedTitle)
+        val cleanA = cleanMetadataText(extractedArtist)
         val cleanAlb = cleanMetadataText(album)
+        val cachedStudio = com.lin0721.linmusic.core.metadata.SongArtworkEngine.getCachedCoverArt(cleanT, cleanA)
+        val effectiveCover = cachedStudio ?: coverUrl
+        val optimizedCover = if (effectiveCover.isNotBlank()) {
+            com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(effectiveCover, 1200)
+        } else ""
 
         val existing = videoIdToId[cleanVid] ?: prefs?.getLong("v2id_$cleanVid", -1L)?.takeIf { it != -1L }
         val songId = existing ?: (cleanVid.hashCode().toLong() and 0x7FFFFFFFL)
@@ -73,7 +79,7 @@ object YouTubeIdRegistry {
         if (cleanT.isNotBlank()) idToTitle[songId] = cleanT
         if (cleanA.isNotBlank()) idToArtist[songId] = cleanA
         if (cleanAlb.isNotBlank()) idToAlbumName[songId] = cleanAlb
-        if (coverUrl.isNotBlank()) idToCoverUrl[songId] = coverUrl
+        if (optimizedCover.isNotBlank()) idToCoverUrl[songId] = optimizedCover
         if (durationSec > 0) idToDurationSec[songId] = durationSec
         if (artists.isNotEmpty()) idToArtists[songId] = artists
 
@@ -83,7 +89,7 @@ object YouTubeIdRegistry {
             if (cleanT.isNotBlank()) putString("title_$songId", cleanT)
             if (cleanA.isNotBlank()) putString("artist_$songId", cleanA)
             if (cleanAlb.isNotBlank()) putString("album_$songId", cleanAlb)
-            if (coverUrl.isNotBlank()) putString("cover_$songId", coverUrl)
+            if (optimizedCover.isNotBlank()) putString("cover_$songId", optimizedCover)
             if (durationSec > 0) putInt("dur_$songId", durationSec)
             apply()
         }
@@ -93,12 +99,16 @@ object YouTubeIdRegistry {
 
     fun isStudioCover(url: String?): Boolean {
         if (url.isNullOrBlank()) return false
-        return url.contains("mzstatic.com") ||
-               url.contains("apple.com") ||
-               url.contains("googleusercontent.com") ||
-               url.contains("coverartarchive.org") ||
-               url.contains("scdn.co") ||
-               url.contains("deezer.com")
+        val lower = url.lowercase()
+        return lower.contains("mzstatic.com") ||
+               lower.contains("apple.com") ||
+               lower.contains("coverartarchive.org") ||
+               lower.contains("scdn.co") ||
+               lower.contains("deezer.com") ||
+               lower.contains("dzcdn.net") ||
+               lower.contains("tidal.com") ||
+               lower.startsWith("content://") ||
+               lower.startsWith("file://")
     }
 
     fun registerMetadata(
@@ -108,16 +118,23 @@ object YouTubeIdRegistry {
         coverUrl: String = "",
         videoId: String? = null
     ) {
-        val cleanT = cleanMetadataText(title)
-        val cleanA = cleanMetadataText(artist)
+        val (extractedTitle, extractedArtist) = com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist(title, artist)
+        val cleanT = cleanMetadataText(extractedTitle)
+        val cleanA = cleanMetadataText(extractedArtist)
+        val cachedStudio = com.lin0721.linmusic.core.metadata.SongArtworkEngine.getCachedCoverArt(cleanT, cleanA)
+        val effectiveCover = cachedStudio ?: coverUrl
+        val optimizedCover = if (effectiveCover.isNotBlank()) {
+            com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(effectiveCover, 1200)
+        } else ""
+
         if (cleanT.isNotBlank()) idToTitle[songId] = cleanT
         if (cleanA.isNotBlank()) idToArtist[songId] = cleanA
-        if (coverUrl.isNotBlank()) {
+        if (optimizedCover.isNotBlank()) {
             val existing = idToCoverUrl[songId]
             val isExistingStudio = isStudioCover(existing)
-            val isNewYtThumb = coverUrl.contains("i.ytimg.com") || coverUrl.contains("img.youtube.com")
-            if (!isExistingStudio || !isNewYtThumb) {
-                idToCoverUrl[songId] = coverUrl
+            val isNewStudio = isStudioCover(optimizedCover)
+            if (!isExistingStudio || isNewStudio) {
+                idToCoverUrl[songId] = optimizedCover
             }
         }
         val cleanVid = sanitizeVideoId(videoId)
@@ -129,7 +146,7 @@ object YouTubeIdRegistry {
         prefs?.edit()?.apply {
             if (cleanT.isNotBlank()) putString("title_$songId", cleanT)
             if (cleanA.isNotBlank()) putString("artist_$songId", cleanA)
-            val currentCover = idToCoverUrl[songId] ?: coverUrl
+            val currentCover = idToCoverUrl[songId] ?: optimizedCover
             if (currentCover.isNotBlank()) putString("cover_$songId", currentCover)
             if (cleanVid.isNotBlank()) {
                 putString("vid_$songId", cleanVid)
@@ -139,38 +156,52 @@ object YouTubeIdRegistry {
         }
     }
 
-    fun registerPlaceholder(title: String, artist: String, album: String = ""): Track {
+    fun registerPlaceholder(
+        title: String,
+        artist: String,
+        album: String = "",
+        durationSec: Int = 0,
+        coverUrl: String = "",
+        artists: List<Artist> = emptyList()
+    ): Track {
         val cleanT = cleanMetadataText(title)
         val cleanA = cleanMetadataText(artist)
         val cleanAlb = cleanMetadataText(album)
-        val splitArtists = cleanA.split(Regex("""[,/、|\\+x]|(\s+&\s+)|(\bfeat\.?\b)|(\bft\.?\b)""", RegexOption.IGNORE_CASE))
-            .map { cleanMetadataText(it.trim()) }
-            .filter { it.isNotBlank() }
-            .ifEmpty { listOf(cleanA) }
-        val artistList = splitArtists.map { aName ->
-            val aId = registerArtistByName(aName)
-            Artist(id = aId, name = aName)
+        val artistList = if (artists.isNotEmpty()) artists else {
+            val splitArtists = cleanA.split(Regex("""[,/、|\\+x]|(\s+&\s+)|(\bfeat\.?\b)|(\bft\.?\b)""", RegexOption.IGNORE_CASE))
+                .map { cleanMetadataText(it.trim()) }
+                .filter { it.isNotBlank() }
+                .ifEmpty { listOf(cleanA) }
+            splitArtists.map { aName ->
+                val aId = registerArtistByName(aName)
+                Artist(id = aId, name = aName)
+            }
         }
         val uniqueKey = "placeholder:${cleanT.lowercase()}:${cleanA.lowercase()}"
         val songId = (uniqueKey.hashCode().toLong() and 0x7FFFFFFFL)
         val albumId = if (cleanAlb.isNotBlank()) (cleanAlb.hashCode().toLong() and 0x7FFFFFFFL) else 0L
+        val durMs = if (durationSec > 0) durationSec.toLong() * 1000L else 210_000L
         val track = Track(
             id = songId,
             name = cleanT,
             ar = artistList,
-            al = Album(id = albumId, name = cleanAlb, picUrl = ""),
-            dt = 210_000L
+            al = Album(id = albumId, name = cleanAlb, picUrl = coverUrl),
+            dt = durMs
         )
         idToTrack[songId] = track
         idToTitle[songId] = cleanT
         idToArtist[songId] = cleanA
         idToArtists[songId] = artistList
         idToAlbumName[songId] = cleanAlb
+        if (coverUrl.isNotBlank()) idToCoverUrl[songId] = coverUrl
+        if (durationSec > 0) idToDurationSec[songId] = durationSec
 
         prefs?.edit()?.apply {
             putString("title_$songId", cleanT)
             putString("artist_$songId", cleanA)
             putString("album_$songId", cleanAlb)
+            if (coverUrl.isNotBlank()) putString("cover_$songId", coverUrl)
+            if (durationSec > 0) putInt("dur_$songId", durationSec)
             apply()
         }
 

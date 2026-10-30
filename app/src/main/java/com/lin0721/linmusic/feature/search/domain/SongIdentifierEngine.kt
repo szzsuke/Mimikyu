@@ -1,6 +1,5 @@
 package com.lin0721.linmusic.feature.search.domain
 
-import com.lin0721.linmusic.core.metadata.ITunesSearchClient
 import com.lin0721.linmusic.core.model.Track
 import com.lin0721.linmusic.feature.search.data.SearchRepository
 import com.lin0721.linmusic.feature.search.domain.SearchResultItem
@@ -32,8 +31,7 @@ data class IdentifiedSong(
  * and seamlessly correlates with Mimikyu's internal SearchRepository for instant full playback.
  */
 class SongIdentifierEngine(
-    private val searchRepository: SearchRepository,
-    private val iTunesClient: ITunesSearchClient = ITunesSearchClient()
+    private val searchRepository: SearchRepository
 ) {
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -46,69 +44,40 @@ class SongIdentifierEngine(
 
         Timber.tag("SongIdentifier").d("Identifying song for query: '%s'", cleanQuery)
 
-        // 1. First, search iTunes API for rich studio metadata, hi-res artwork and 30s AAC preview
-        val iTunesTracks = try {
-            iTunesClient.searchSongs(cleanQuery, limit = 5)
-        } catch (e: Exception) {
-            Timber.tag("SongIdentifier").w(e, "iTunes search failed for: %s", cleanQuery)
-            emptyList()
-        }
-
-        val bestITunesMatch = iTunesTracks.firstOrNull()
-
-        // 2. Correlate with Mimikyu internal track repository for immediate lossless/streaming playback
-        val targetSearchQuery = if (bestITunesMatch != null) {
-            "${bestITunesMatch.trackName} ${bestITunesMatch.artistName}"
-        } else {
-            cleanQuery
-        }
-
+        // 1. Primary: Search Mimikyu internal track repository directly
         val mimikyuTrack: Track? = try {
-            val searchFlow = searchRepository.search(targetSearchQuery, SearchType.SONG, offset = 0, limit = 5)
+            val searchFlow = searchRepository.search(cleanQuery, SearchType.SONG, offset = 0, limit = 5)
             val pageResult = searchFlow.firstOrNull()?.getOrNull()
             pageResult?.items
                 ?.filterIsInstance<SearchResultItem.SongItem>()
                 ?.firstOrNull()
                 ?.track
         } catch (e: Exception) {
-            Timber.tag("SongIdentifier").w(e, "Mimikyu repo correlation failed for: %s", targetSearchQuery)
+            Timber.tag("SongIdentifier").w(e, "Mimikyu repo correlation failed for: %s", cleanQuery)
             null
         }
 
-        if (bestITunesMatch != null) {
-            val highResCover = bestITunesMatch.getUpgradedArtworkUrl(size = 600)
-                ?: bestITunesMatch.artworkUrl100.orEmpty()
-
-            return@withContext IdentifiedSong(
-                title = bestITunesMatch.trackName,
-                artist = bestITunesMatch.artistName,
-                album = bestITunesMatch.collectionName.orEmpty(),
-                coverUrl = highResCover,
-                previewUrl = bestITunesMatch.previewUrl,
-                durationMs = bestITunesMatch.trackTimeMillis ?: 0L,
-                mimikyuTrack = mimikyuTrack,
-                source = "Apple Music"
-            )
-        }
-
-        // 3. Fallback to Deezer public catalogue
-        val deezerResult = tryDeezerSearch(cleanQuery)
-        if (deezerResult != null) {
-            return@withContext deezerResult.copy(mimikyuTrack = mimikyuTrack)
-        }
-
-        // 4. Fallback: If only Mimikyu internal catalogue found a match
         if (mimikyuTrack != null) {
+            val hdCover = com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(
+                mimikyuTrack.al.picUrl,
+                com.lin0721.linmusic.core.metadata.SongArtworkEngine.PLAYER_ART_PX
+            )
             return@withContext IdentifiedSong(
                 title = mimikyuTrack.name,
                 artist = mimikyuTrack.ar.joinToString(", ") { it.name },
                 album = mimikyuTrack.al.name,
-                coverUrl = mimikyuTrack.al.picUrl,
+                coverUrl = hdCover,
                 previewUrl = null,
                 durationMs = mimikyuTrack.dt,
                 mimikyuTrack = mimikyuTrack,
                 source = "Mimikyu Music"
             )
+        }
+
+        // 2. Fallback to Deezer public catalogue
+        val deezerResult = tryDeezerSearch(cleanQuery)
+        if (deezerResult != null) {
+            return@withContext deezerResult
         }
 
         null

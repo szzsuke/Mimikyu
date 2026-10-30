@@ -20,6 +20,7 @@ import com.lin0721.linmusic.feature.search.data.SearchHistoryPreferences
 import com.lin0721.linmusic.feature.search.data.SearchRepository
 import com.lin0721.linmusic.feature.search.domain.SearchResultItem
 import com.lin0721.linmusic.feature.search.domain.SearchType
+import com.lin0721.linmusic.feature.search.domain.stableKey
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -78,7 +79,7 @@ class SearchViewModel(
     private val _featuredTrack = MutableStateFlow<Track?>(null)
     val featuredTrack: StateFlow<Track?> = _featuredTrack.asStateFlow()
 
-    private val _selectedType = MutableStateFlow(SearchType.SONG)
+    private val _selectedType = MutableStateFlow(SearchType.ALL)
     val selectedType: StateFlow<SearchType> = _selectedType.asStateFlow()
 
     private val _placeholderInfo = MutableStateFlow<com.lin0721.linmusic.feature.search.domain.SearchPlaceholderInfo?>(null)
@@ -323,9 +324,11 @@ class SearchViewModel(
             result.onSuccess { page ->
                 offsetByType[type] = offset + page.rawFetchedCount
                 val mergedItems = if (isLoadMore) {
-                    (stateFlow.value as? SearchResultsUiState.Success)?.items.orEmpty() + page.items
+                    val existing = (stateFlow.value as? SearchResultsUiState.Success)?.items.orEmpty()
+                    val existingKeys = existing.map { it.stableKey }.toHashSet()
+                    existing + page.items.filter { existingKeys.add(it.stableKey) }
                 } else {
-                    page.items
+                    page.items.distinctBy { it.stableKey }
                 }
                 if (!isLoadMore && mergedItems.isNotEmpty()) {
                     when (val first = mergedItems.firstOrNull()) {
@@ -424,6 +427,17 @@ class SearchViewModel(
             coverUrl = track.al.picUrl
         )
         viewModelScope.launch {
+            historyPreferences.addRecentItem(
+                RecentSearchItem(
+                    id = "song_${track.id}",
+                    title = track.name,
+                    subtitle = "Song • " + track.ar.joinToString { it.name },
+                    imageUrl = track.al.picUrl,
+                    type = com.lin0721.linmusic.feature.search.data.RecentItemType.SONG,
+                    rawId = track.id,
+                    artistName = track.ar.joinToString { it.name }
+                )
+            )
             tasteSignalScorer?.recordSearched(
                 songId = item.songId,
                 title = item.title,
@@ -432,6 +446,82 @@ class SearchViewModel(
             )
         }
         playerManager.playWithDynamicRadio(item, "Search")
+    }
+
+    fun playSongMatch(suggestion: com.lin0721.linmusic.feature.search.domain.SearchSuggestion.SongMatch) {
+        val songId = suggestion.id
+        val item = QueueItem(
+            songId = songId,
+            title = suggestion.text,
+            artist = suggestion.artistName,
+            coverUrl = suggestion.coverUrl
+        )
+        viewModelScope.launch {
+            historyPreferences.addRecentItem(
+                RecentSearchItem(
+                    id = "song_$songId",
+                    title = suggestion.text,
+                    subtitle = "Song • " + suggestion.artistName,
+                    imageUrl = suggestion.coverUrl,
+                    type = com.lin0721.linmusic.feature.search.data.RecentItemType.SONG,
+                    rawId = songId,
+                    artistName = suggestion.artistName
+                )
+            )
+            tasteSignalScorer?.recordSearched(
+                songId = item.songId,
+                title = item.title,
+                artist = item.artist,
+                coverUrl = item.coverUrl
+            )
+        }
+        playerManager.playWithDynamicRadio(item, "Search Recommendation")
+    }
+
+    fun recordArtistClick(artistId: Long, name: String, avatarUrl: String) {
+        viewModelScope.launch {
+            historyPreferences.addRecentItem(
+                RecentSearchItem(
+                    id = "artist_$artistId",
+                    title = name,
+                    subtitle = "Artist",
+                    imageUrl = avatarUrl,
+                    type = com.lin0721.linmusic.feature.search.data.RecentItemType.ARTIST,
+                    rawId = artistId
+                )
+            )
+        }
+    }
+
+    fun recordAlbumClick(albumId: Long, name: String, artistName: String, coverUrl: String) {
+        viewModelScope.launch {
+            historyPreferences.addRecentItem(
+                RecentSearchItem(
+                    id = "album_$albumId",
+                    title = name,
+                    subtitle = if (artistName.isNotBlank()) "Album • $artistName" else "Album",
+                    imageUrl = coverUrl,
+                    type = com.lin0721.linmusic.feature.search.data.RecentItemType.ALBUM,
+                    rawId = albumId,
+                    artistName = artistName
+                )
+            )
+        }
+    }
+
+    fun recordPlaylistClick(playlistId: Long, name: String, creator: String, coverUrl: String) {
+        viewModelScope.launch {
+            historyPreferences.addRecentItem(
+                RecentSearchItem(
+                    id = "playlist_$playlistId",
+                    title = name,
+                    subtitle = if (creator.isNotBlank()) "Playlist • $creator" else "Playlist",
+                    imageUrl = coverUrl,
+                    type = com.lin0721.linmusic.feature.search.data.RecentItemType.PLAYLIST,
+                    rawId = playlistId
+                )
+            )
+        }
     }
 
     fun playRecentSong(recentItem: RecentSearchItem) {

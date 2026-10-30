@@ -1,12 +1,15 @@
 package com.lin0721.linmusic.feature.player.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,7 +32,9 @@ fun SongInfo(
     isLiked: Boolean,
     onToggleLike: () -> Unit,
     onArtistClick: (() -> Unit)? = null,
-    onAddToPlaylist: (() -> Unit)? = null
+    onAddToPlaylist: (() -> Unit)? = null,
+    isModern: Boolean = false,
+    onMoreClick: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -47,7 +52,7 @@ fun SongInfo(
             Text(
                 text = title,
                 color = Color.White,
-                fontSize = 20.sp,
+                fontSize = if (isModern) 22.sp else 20.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 modifier = Modifier.basicMarquee()
@@ -56,7 +61,7 @@ fun SongInfo(
             Text(
                 text = artist,
                 color = Color.White.copy(alpha = 0.7f),
-                fontSize = 14.sp,
+                fontSize = if (isModern) 15.sp else 14.sp,
                 fontWeight = FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -66,10 +71,11 @@ fun SongInfo(
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (isModern) 12.dp else 16.dp)
         ) {
             MimikyuIconButton(
-                onClick = onToggleLike
+                onClick = onToggleLike,
+                modifier = Modifier
             ) {
                 Icon(
                     painter = painterResource(
@@ -77,12 +83,12 @@ fun SongInfo(
                         else MimikyuIcons.Heart
                     ),
                     contentDescription = if (isLiked) "Remove from Your Library" else "Save to Your Library",
-                    tint = if (isLiked) Color(0xFFFF007F) else Color.White,
-                    modifier = Modifier.size(26.dp)
+                    tint = if (isLiked) MaterialTheme.colorScheme.primary else Color.White,
+                    modifier = Modifier.size(if (isModern) 24.dp else 26.dp)
                 )
             }
 
-            if (onAddToPlaylist != null) {
+            if (!isModern && onAddToPlaylist != null) {
                 MimikyuIconButton(
                     onClick = onAddToPlaylist
                 ) {

@@ -155,18 +155,23 @@ object OfficialAudioTrackResolver {
             } ?: pool.first()
 
             val atvVideoId = candidate.id
-            val atvTitle = cleanMetadataText(candidate.title)
-            val atvArtist = cleanMetadataText(candidate.artists.joinToString(", ") { cleanMetadataText(it.name) })
+            val (cleanCandidateTitle, cleanCandidateArtist) = com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist(
+                candidate.title,
+                candidate.artists.joinToString(", ") { it.name }
+            )
+            val atvTitle = cleanCandidateTitle.ifBlank { cleanT }
+            val atvArtist = cleanCandidateArtist.ifBlank { cleanA }
             val atvDuration = candidate.duration?.takeIf { it > 0 } ?: currentDurationSec
-            val atvCover = YouTubeThumbnailUpscaler.upscale(candidate.thumbnail)
-                ?: candidate.thumbnail
-                ?: currentCoverUrl.orEmpty()
             val atvAlbum = cleanMetadataText(candidate.album?.name ?: "")
+            val atvCover = com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(
+                candidate.thumbnail.ifBlank { currentCoverUrl.orEmpty() },
+                com.lin0721.linmusic.core.metadata.SongArtworkEngine.PLAYER_ART_PX
+            )
 
             val result = AtvResolutionResult(
                 videoId = atvVideoId,
                 title = atvTitle,
-                artist = atvArtist.ifBlank { cleanA },
+                artist = atvArtist,
                 durationSec = atvDuration,
                 coverUrl = atvCover,
                 albumName = atvAlbum.takeIf { it.isNotBlank() },

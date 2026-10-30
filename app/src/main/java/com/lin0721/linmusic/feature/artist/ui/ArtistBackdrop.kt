@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,11 +39,13 @@ fun BoxScope.ArtistBackdrop(
             .fillMaxWidth()
             .height(380.dp)
     ) {
+        val upscaledUrl = remember(bgUrl) {
+            if (bgUrl.isEmpty()) ""
+            else com.lin0721.linmusic.core.metadata.YouTubeThumbnailUpscaler.forPlayer(bgUrl) ?: bgUrl
+        }
         SubcomposeAsyncImage(
             model = ImageRequest.Builder(context)
-                .data(if (bgUrl.isNotEmpty()) {
-                    if (bgUrl.contains("126.net")) "$bgUrl?param=640y640" else bgUrl
-                } else "")
+                .data(upscaledUrl)
                 .allowHardware(false)
                 .crossfade(true)
                 .build(),

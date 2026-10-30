@@ -12,7 +12,7 @@ val playerModule = module {
     single<PlaybackResolver> { PlaybackResolverImpl(androidContext(), getOrNull(), get()) }
     single { com.lin0721.linmusic.core.player.recommendation.TasteSignalScorer(androidContext()) }
     single { com.lin0721.linmusic.core.player.recommendation.SmartRecommendationEngine(androidContext(), get(), get()) }
-    single { com.lin0721.linmusic.core.player.recommendation.DailyMixGenerator(tasteSignalScorer = get(), playbackHistoryRepository = getOrNull()) }
+    single { com.lin0721.linmusic.core.player.recommendation.DailyMixGenerator(tasteSignalScorer = get(), playbackHistoryRepository = getOrNull(), auroraApiClient = getOrNull(), isrcMetadataResolver = getOrNull()) }
     single { PlayerManager(androidContext(), get(), get(), get(), get(), get(), get(), getOrNull(), get(), getOrNull(), getOrNull()) }
     single { ExternalLyricCoordinator(androidContext(), get(), get(), get()) }
     single { ExternalInterruptionResumeController(androidContext(), get()) }

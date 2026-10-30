@@ -112,7 +112,9 @@ data class ArtistDetailInfo(
     val musicSize: Int = 0,
     val identifyTag: List<String>? = null,
     val trans: String? = null,
-    val alias: List<String>? = null
+    val alias: List<String>? = null,
+    val logoUrl: String? = null,
+    val videoUrl: String? = null
 )
 
 @Serializable

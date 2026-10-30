@@ -18,11 +18,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.NorthWest
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.lin0721.linmusic.core.metadata.SongArtworkEngine
+import com.lin0721.linmusic.core.ui.components.PlayingEqualizerBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -70,12 +75,14 @@ internal fun SearchTypingPanel(
     onAlbumClick: (Long) -> Unit,
     onPlaylistClick: (Long) -> Unit = {},
     onPlayRecentSong: (RecentSearchItem) -> Unit = {},
+    onPlaySongMatch: (SearchSuggestion.SongMatch) -> Unit = {},
     onAddSongToLibrary: (Long) -> Unit = {},
-    onRemoveRecentItem: (String) -> Unit
+    onRemoveRecentItem: (String) -> Unit,
+    onClearRecentItems: () -> Unit = {}
 ) {
     val contentPadding = PaddingValues(bottom = LocalBottomOverlayInset.current + MimikyuSpacing.md)
 
-    // ── 1. Query is empty: Show Mimikyu "Recents" ──
+    // ── 1. Query is empty: Show BitChord-style Recent searches ──
     if (query.isBlank()) {
         if (recentItems.isEmpty()) {
             Box(
@@ -93,29 +100,46 @@ internal fun SearchTypingPanel(
             return
         }
 
+        val uniqueRecentItems = remember(recentItems) { recentItems.distinctBy { it.id } }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = contentPadding
         ) {
             item(key = "recents_header") {
-                Text(
-                    text = "Recents",
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 10.dp)
-                )
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Recent searches",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "Clear",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(percent = 50))
+                            .clickable(onClick = onClearRecentItems)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
             }
 
-            items(recentItems, key = { it.id }) { item ->
+            items(uniqueRecentItems, key = { it.id }) { item ->
                 val isSongActive = item.type == RecentItemType.SONG &&
                     (currentTrackId != null && (currentTrackId == item.rawId.toString() || currentTrackId == item.id))
 
                 RecentItemRow(
                     item = item,
                     isCurrentlyPlaying = isSongActive,
+                    isPlaying = isPlaying,
                     onClick = {
                         when (item.type) {
                             RecentItemType.ARTIST -> {
@@ -146,59 +170,117 @@ internal fun SearchTypingPanel(
         return
     }
 
-    // ── 2. Query is not empty: Show auto-complete suggestions ──
+    // ── 2. Query is not empty: Show BitChord-style Recommendations / Typeahead ──
     val highlight = MaterialTheme.colorScheme.primary
+    val uniqueSuggestions = remember(suggestions) { suggestions.distinctBy { it.stableKey } }
+    val keywordSuggestions = remember(uniqueSuggestions) {
+        uniqueSuggestions.filterIsInstance<SearchSuggestion.Keyword>().take(3)
+    }
+    val mediaSuggestions = remember(uniqueSuggestions) {
+        uniqueSuggestions.filter { it !is SearchSuggestion.Keyword }
+    }
+
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = contentPadding) {
+        // Top row: Search exact query
         item(key = "submit_query") {
             PanelRow(
                 onClick = { onSubmitKeyword(query) },
-                leading = { LeadingIcon(MimikyuIcons.Search, tint = MaterialTheme.colorScheme.onSurface) },
+                leading = { LeadingIcon(Icons.Rounded.Search, tint = MaterialTheme.colorScheme.onSurface) },
                 title = AnnotatedString("Search \"$query\""),
                 titleWeight = FontWeight.Bold
             )
         }
-        items(suggestions, key = { it.stableKey }) { suggestion ->
+
+        // Compact text suggestions (capped at 3)
+        items(keywordSuggestions, key = { it.stableKey }) { suggestion ->
             val title = remember(suggestion.text, query, highlight) {
                 highlightMatch(suggestion.text, query, SpanStyle(color = highlight))
             }
-            val fillButton: @Composable () -> Unit = {
-                MimikyuIconButton(onClick = { onFillQuery(suggestion.text) }) {
-                    Icon(
-                        Icons.Rounded.NorthWest,
-                        contentDescription = "Fill ${suggestion.text}",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+            PanelRow(
+                onClick = { onSubmitKeyword(suggestion.text) },
+                leading = { LeadingIcon(Icons.Rounded.Search) },
+                title = title,
+                trailing = {
+                    MimikyuIconButton(onClick = { onFillQuery(suggestion.text) }) {
+                        Icon(
+                            Icons.Rounded.NorthWest,
+                            contentDescription = "Fill ${suggestion.text}",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            )
+        }
+
+        // Horizontal divider between text completions and live media rows
+        if (mediaSuggestions.isNotEmpty()) {
+            item(key = "typeahead_divider") {
+                androidx.compose.material3.HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                )
+            }
+        }
+
+        // Live media typeahead rows (playable songs, artists, albums)
+        items(mediaSuggestions, key = { it.stableKey }) { suggestion ->
+            when (suggestion) {
+                is SearchSuggestion.SongMatch -> {
+                    val isSongActive = currentTrackId != null &&
+                        (currentTrackId == suggestion.id.toString() || (suggestion.rawVideoId.isNotBlank() && currentTrackId == suggestion.rawVideoId))
+                    TypeaheadSongRow(
+                        suggestion = suggestion,
+                        isCurrent = isSongActive,
+                        isPlaying = isPlaying,
+                        onPlay = { onPlaySongMatch(suggestion) },
+                        onFill = { onFillQuery(suggestion.text) }
                     )
                 }
-            }
-            when (suggestion) {
-                is SearchSuggestion.ArtistMatch -> PanelRow(
-                    onClick = { onArtistClick(suggestion.id) },
-                    leading = { SuggestionCover(suggestion.avatarUrl, MimikyuIcons.User, circle = true) },
-                    title = title,
-                    subtitle = "Artists",
-                    trailing = fillButton
-                )
-                is SearchSuggestion.AlbumMatch -> PanelRow(
-                    onClick = { onAlbumClick(suggestion.id) },
-                    leading = { SuggestionCover(null, MimikyuIcons.Album, circle = false) },
-                    title = title,
-                    subtitle = listOf("Albums", suggestion.artistName).filter { it.isNotBlank() }.joinToString(" · "),
-                    trailing = fillButton
-                )
-                is SearchSuggestion.SongMatch -> PanelRow(
-                    onClick = { onSubmitKeyword(suggestion.text) },
-                    leading = { SuggestionCover(suggestion.coverUrl, MimikyuIcons.Track, circle = false) },
-                    title = title,
-                    subtitle = listOf("Song", suggestion.artistName).filter { it.isNotBlank() }.joinToString(" · "),
-                    trailing = fillButton
-                )
-                is SearchSuggestion.Keyword -> PanelRow(
-                    onClick = { onSubmitKeyword(suggestion.text) },
-                    leading = { LeadingIcon(MimikyuIcons.Search) },
-                    title = title,
-                    trailing = fillButton
-                )
+                is SearchSuggestion.ArtistMatch -> {
+                    val title = remember(suggestion.text, query, highlight) {
+                        highlightMatch(suggestion.text, query, SpanStyle(color = highlight))
+                    }
+                    PanelRow(
+                        onClick = { onArtistClick(suggestion.id) },
+                        leading = { SuggestionCover(suggestion.avatarUrl, MimikyuIcons.User, circle = true) },
+                        title = title,
+                        subtitle = "Artist",
+                        trailing = {
+                            MimikyuIconButton(onClick = { onFillQuery(suggestion.text) }) {
+                                Icon(
+                                    Icons.Rounded.NorthWest,
+                                    contentDescription = "Fill ${suggestion.text}",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    )
+                }
+                is SearchSuggestion.AlbumMatch -> {
+                    val title = remember(suggestion.text, query, highlight) {
+                        highlightMatch(suggestion.text, query, SpanStyle(color = highlight))
+                    }
+                    PanelRow(
+                        onClick = { onAlbumClick(suggestion.id) },
+                        leading = { SuggestionCover(null, MimikyuIcons.Album, circle = false) },
+                        title = title,
+                        subtitle = listOf("Album", suggestion.artistName).filter { it.isNotBlank() }.joinToString(" · "),
+                        trailing = {
+                            MimikyuIconButton(onClick = { onFillQuery(suggestion.text) }) {
+                                Icon(
+                                    Icons.Rounded.NorthWest,
+                                    contentDescription = "Fill ${suggestion.text}",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    )
+                }
+                is SearchSuggestion.Keyword -> Unit
             }
         }
     }
@@ -208,6 +290,7 @@ internal fun SearchTypingPanel(
 private fun RecentItemRow(
     item: RecentSearchItem,
     isCurrentlyPlaying: Boolean,
+    isPlaying: Boolean,
     onClick: () -> Unit,
     onAddSongToLibrary: (Long) -> Unit,
     onRemove: () -> Unit
@@ -219,7 +302,7 @@ private fun RecentItemRow(
             .padding(horizontal = 16.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RecentItemImage(item = item, size = 52.dp)
+        RecentItemImage(item = item, size = 52.dp, isCurrentlyPlaying = isCurrentlyPlaying, isPlaying = isPlaying)
 
         Spacer(modifier = Modifier.width(14.dp))
 
@@ -305,7 +388,7 @@ private fun RecentItemRow(
                 modifier = Modifier.size(36.dp)
             ) {
                 Icon(
-                    painter = painterResource(MimikyuIcons.Close),
+                    imageVector = Icons.Rounded.Close,
                     contentDescription = "Remove from recents",
                     tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier.size(20.dp)
@@ -318,10 +401,12 @@ private fun RecentItemRow(
 @Composable
 private fun RecentItemImage(
     item: RecentSearchItem,
-    size: Dp = 52.dp
+    size: Dp = 52.dp,
+    isCurrentlyPlaying: Boolean = false,
+    isPlaying: Boolean = false
 ) {
     val isArtist = item.type == RecentItemType.ARTIST
-    val shape = if (isArtist) CircleShape else RoundedCornerShape(4.dp)
+    val shape = if (isArtist) CircleShape else RoundedCornerShape(8.dp)
     val fallbackIcon = when (item.type) {
         RecentItemType.ARTIST -> MimikyuIcons.User
         RecentItemType.SONG -> MimikyuIcons.Track
@@ -332,7 +417,7 @@ private fun RecentItemImage(
 
     val imageModel = remember(item.imageUrl, item.title, item.type) {
         when {
-            item.imageUrl.isNotBlank() -> item.imageUrl
+            item.imageUrl.isNotBlank() -> SongArtworkEngine.optimizeArtworkUrl(item.imageUrl, 120)
             isArtist -> ArtistPortraitProvider.getCachedPortrait(item.title).takeIf { it.isNotBlank() }
             else -> null
         }
@@ -369,6 +454,113 @@ private fun RecentItemImage(
                 tint = Color(0xFF717171),
                 modifier = Modifier.size(24.dp)
             )
+        }
+
+        if (isCurrentlyPlaying) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f)),
+                contentAlignment = Alignment.Center
+            ) {
+                PlayingEqualizerBars(color = Color(0xFF1ED760), animate = isPlaying)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TypeaheadSongRow(
+    suggestion: SearchSuggestion.SongMatch,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    onPlay: () -> Unit,
+    onFill: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onPlay)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val coverModel = remember(suggestion.coverUrl) {
+            SongArtworkEngine.optimizeArtworkUrl(suggestion.coverUrl, 120)
+        }
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF282828)),
+            contentAlignment = Alignment.Center
+        ) {
+            SubcomposeAsyncImage(
+                model = coverModel,
+                contentDescription = suggestion.text,
+                contentScale = ContentScale.Crop,
+                loading = {
+                    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF282828)), contentAlignment = Alignment.Center) {
+                        Icon(painter = painterResource(MimikyuIcons.Track), contentDescription = null, tint = Color(0xFF717171), modifier = Modifier.size(24.dp))
+                    }
+                },
+                error = {
+                    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF282828)), contentAlignment = Alignment.Center) {
+                        Icon(painter = painterResource(MimikyuIcons.Track), contentDescription = null, tint = Color(0xFF717171), modifier = Modifier.size(24.dp))
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            if (isCurrent) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.45f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    PlayingEqualizerBars(color = Color(0xFF1ED760), animate = isPlaying)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = suggestion.text,
+                color = if (isCurrent) Color(0xFF1ED760) else Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = listOf("Song", suggestion.artistName).filter { it.isNotBlank() }.joinToString(" · "),
+                color = Color.White.copy(alpha = 0.65f),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        // Direct action / fill button
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            MimikyuIconButton(onClick = onPlay, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Rounded.PlayArrow,
+                    contentDescription = "Play immediately",
+                    tint = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            MimikyuIconButton(onClick = onFill, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Rounded.NorthWest,
+                    contentDescription = "Fill ${suggestion.text}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }

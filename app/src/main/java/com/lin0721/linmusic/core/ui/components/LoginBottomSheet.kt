@@ -49,6 +49,9 @@ import com.lin0721.linmusic.core.ui.theme.NeteaseRed
 import com.lin0721.linmusic.core.ui.theme.SurfaceDark
 import com.lin0721.linmusic.core.ui.theme.SurfaceLight
 import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
+import com.lin0721.linmusic.core.ui.theme.MimikyuCharcoal
+import com.lin0721.linmusic.core.ui.theme.MimikyuYellow
+import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
 import org.koin.androidx.compose.koinViewModel
 
 private enum class LoginMode { CHOICE, EMAIL }
@@ -82,7 +85,7 @@ fun LoginBottomSheet(
                     text = "Google Sign-In Setup",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MimikyuSilver
                 )
             },
             text = {
@@ -128,7 +131,7 @@ fun LoginBottomSheet(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = NeteaseRed)
                 ) {
-                    Text("Save & Sign In", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Save & Sign In", color = MimikyuCharcoal, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -164,7 +167,7 @@ fun LoginBottomSheet(
                     MimikyuIconButton(onClick = {
                         mode = LoginMode.CHOICE
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MimikyuSilver)
                     }
                 }
             }
@@ -200,11 +203,7 @@ fun LoginBottomSheet(
                                         onDismiss()
                                     },
                                     onError = { msg ->
-                                        viewModel.quickLogin { profile ->
-                                            onLoginSuccess("google_auth_token=success")
-                                            ToastManager.showToast("Signed in as ${profile.nickname}")
-                                            onDismiss()
-                                        }
+                                        ToastManager.showToast(msg)
                                     }
                                 )
                             },
@@ -239,7 +238,7 @@ private fun LoginChoiceContent(
         text = "Sign In",
         fontSize = 28.sp,
         fontWeight = FontWeight.ExtraBold,
-        color = Color.White,
+        color = MimikyuSilver,
         modifier = Modifier.padding(bottom = MimikyuSpacing.sm)
     )
     Text(
@@ -283,7 +282,7 @@ private fun EmailLoginContent(
         text = if (isSignUp) "Create Account" else "Email Sign In",
         fontSize = 24.sp,
         fontWeight = FontWeight.Bold,
-        color = Color.White,
+        color = MimikyuSilver,
         modifier = Modifier.padding(bottom = MimikyuSpacing.xs)
     )
     Text(
@@ -317,7 +316,7 @@ private fun EmailLoginContent(
                 text = "Sign In",
                 fontSize = 14.sp,
                 fontWeight = if (!isSignUp) FontWeight.Bold else FontWeight.Normal,
-                color = Color.White
+                color = if (!isSignUp) MimikyuCharcoal else MimikyuSilver
             )
         }
 
@@ -337,7 +336,7 @@ private fun EmailLoginContent(
                 text = "Create Account",
                 fontSize = 14.sp,
                 fontWeight = if (isSignUp) FontWeight.Bold else FontWeight.Normal,
-                color = Color.White
+                color = if (isSignUp) MimikyuCharcoal else MimikyuSilver
             )
         }
     }
@@ -393,8 +392,8 @@ private fun EmailLoginContent(
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = NeteaseRed,
             unfocusedBorderColor = SurfaceLight,
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
+            focusedTextColor = MimikyuSilver,
+            unfocusedTextColor = MimikyuSilver,
             focusedContainerColor = SurfaceLight.copy(alpha = 0.5f),
             unfocusedContainerColor = SurfaceLight.copy(alpha = 0.5f)
         )
@@ -465,7 +464,7 @@ private fun EmailLoginContent(
     ) {
         if (isLoading) {
             CircularProgressIndicator(
-                color = Color.White,
+                color = MimikyuCharcoal,
                 modifier = Modifier.size(24.dp),
                 strokeWidth = 2.dp
             )
@@ -474,7 +473,7 @@ private fun EmailLoginContent(
                 text = if (isSignUp) "Create Account" else "Sign In",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White
+                color = MimikyuCharcoal
             )
         }
     }
@@ -494,8 +493,8 @@ private fun GoogleLoginButton(
             .height(56.dp),
         shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color.White,
-            contentColor = Color(0xFF1F1F1F)
+            containerColor = SurfaceDark,
+            contentColor = MimikyuSilver
         ),
         elevation = ButtonDefaults.buttonElevation(
             defaultElevation = 4.dp,
@@ -512,7 +511,7 @@ private fun GoogleLoginButton(
             text = "Google Login",
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF1F1F1F)
+            color = MimikyuSilver
         )
     }
 }
@@ -545,14 +544,14 @@ private fun LoginOptionButton(
             icon,
             contentDescription = null,
             modifier = Modifier.size(22.dp),
-            tint = Color.White
+            tint = MimikyuCharcoal
         )
         Spacer(modifier = Modifier.width(10.dp))
         Text(
             text = text,
             fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
-            color = Color.White
+            color = MimikyuCharcoal
         )
     }
 }

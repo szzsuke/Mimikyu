@@ -38,6 +38,8 @@ import com.lin0721.linmusic.core.ui.theme.SurfaceLight
 import com.lin0721.linmusic.core.ui.theme.TextGray
 import org.koin.androidx.compose.koinViewModel
 import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
+import com.lin0721.linmusic.core.ui.theme.MimikyuCharcoal
+import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
 
 import androidx.compose.ui.res.painterResource
 import com.lin0721.linmusic.core.ui.theme.MimikyuIcons
@@ -125,14 +127,14 @@ private fun CreateMenuItem(
                 Icon(
                     painter = painterResource(id = iconRes),
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = MimikyuSilver,
                     modifier = Modifier.size(22.dp)
                 )
             } else if (icon != null) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = MimikyuSilver,
                     modifier = Modifier.size(22.dp)
                 )
             }
@@ -141,7 +143,7 @@ private fun CreateMenuItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = Color.White,
+                color = MimikyuSilver,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -245,7 +247,7 @@ private fun CreatePlaylistDialog(
                     onClick = onDismiss,
                     enabled = !isCreating
                 ) {
-                    Text("Cancel", color = Color.White)
+                    Text("Cancel", color = MimikyuSilver)
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 MimikyuButton(
@@ -257,11 +259,11 @@ private fun CreatePlaylistDialog(
                     if (isCreating) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
-                            color = Color.White,
+                            color = MimikyuCharcoal,
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Text("Create", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Create", color = MimikyuCharcoal, fontWeight = FontWeight.Bold)
                     }
                 }
             }

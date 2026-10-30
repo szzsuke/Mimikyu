@@ -10,14 +10,10 @@ import androidx.compose.ui.unit.dp
 import com.lin0721.linmusic.core.player.PlayMode
 import com.lin0721.linmusic.core.ui.theme.PlayerBackdropPalette
 
-// Play of ， and  fillGapItem
 const val FullPlayerFillGapCount = 3
 
-// and  of ， and  item key
 val FullPlayerPlaybackItemKeys = listOf("cover", "active_lyric", "song_info", "progress", "controls", "actions")
 
-// Play：、Artists、、、Play、
-// fillGap ， fillTail ，、
 fun LazyListScope.fullPlayerPlaybackSection(
     songState: PlayerSongDetailState,
     colors: PlayerBackdropPalette,
@@ -32,7 +28,6 @@ fun LazyListScope.fullPlayerPlaybackSection(
     currentKey: Any,
     previousKey: Any? = null,
     nextKey: Any? = null,
-    // ， FullPlayerScreen
     coverExtraInset: Dp = 0.dp,
     onToggleSidebarFullscreen: (() -> Unit)? = null,
     isSidebarFullscreen: Boolean = false,
@@ -41,7 +36,6 @@ fun LazyListScope.fullPlayerPlaybackSection(
     playContext: String?,
     currentLyricIndex: Int,
     isPlaying: Boolean,
-    // Play："Paused"， of  isPlaying
     playWhenReady: Boolean,
     currentPositionProvider: () -> Long,
     duration: Long,
@@ -85,6 +79,7 @@ fun LazyListScope.fullPlayerPlaybackSection(
                 queue = queue,
                 currentIndex = currentIndex,
                 onPlayIndex = onPlayIndex,
+                isPlaying = isPlaying,
                 previousCoverUrl = previousCoverUrl,
                 nextCoverUrl = nextCoverUrl,
                 onSwipeToPrevious = onSwipeToPrevious,
@@ -109,6 +104,8 @@ fun LazyListScope.fullPlayerPlaybackSection(
             currentLyricIndex = currentLyricIndex,
             isPlaying = isPlaying,
             isLyricsLoading = songState.isLyricsLoading,
+            isModern = false,
+            currentPositionProvider = currentPositionProvider,
             onOpenFullScreen = onOpenFullScreenLyrics
         )
     }
@@ -120,20 +117,22 @@ fun LazyListScope.fullPlayerPlaybackSection(
             isLiked = songState.isLiked,
             onToggleLike = onToggleLike,
             onArtistClick = onArtistClick,
-            onAddToPlaylist = onAddToPlaylist
+            onAddToPlaylist = onAddToPlaylist,
+            isModern = false,
+            onMoreClick = onMoreClick
         )
     }
 
     fillGapItem(2)
 
     item(key = "progress") {
-        // PlaySongsDetails of
         val displayDuration = if (duration > 0L) duration else (songState.songDetail?.dt ?: 0L)
         ProgressSection(
             currentPositionProvider = currentPositionProvider,
             duration = displayDuration,
             onSeek = onSeek,
-            chorusStartMs = songState.chorusStartMs
+            chorusStartMs = songState.chorusStartMs,
+            isModern = false
         )
     }
 
@@ -152,7 +151,8 @@ fun LazyListScope.fullPlayerPlaybackSection(
             isRoaming = playContext == "similar_roaming",
             onDisableRoaming = onDisableRoaming,
             isIntelligence = playContext == "intelligence",
-            onDisableIntelligence = onDisableIntelligence
+            onDisableIntelligence = onDisableIntelligence,
+            isModern = false
         )
     }
 
@@ -163,7 +163,10 @@ fun LazyListScope.fullPlayerPlaybackSection(
             onOutputDeviceClick = onOutputDeviceClick,
             onQueueClick = onQueueClick,
             onShareClick = onShareClick,
-            connectedDevice = connectedDevice
+            onOpenFullScreenLyrics = onOpenFullScreenLyrics,
+            connectedDevice = connectedDevice,
+            isModern = false,
+            onMoreClick = onMoreClick
         )
     }
 

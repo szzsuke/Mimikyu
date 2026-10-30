@@ -7,6 +7,7 @@ import com.lin0721.linmusic.core.reccobeats.ReccoBeatsRepository
 import com.lin0721.linmusic.core.auth.AuthRepository
 import com.lin0721.linmusic.core.auth.AuthRepositoryImpl
 import com.lin0721.linmusic.core.auth.SyncProfileAfterLoginUseCase
+import com.lin0721.linmusic.core.auth.YouTubeAccountSyncUseCase
 import com.lin0721.linmusic.core.lyrics.ExternalLyricsService
 import com.lin0721.linmusic.core.playlistmutation.PlaylistMutationBus
 import com.lin0721.linmusic.core.qobuz.QobuzService
@@ -94,7 +95,8 @@ val repositoryModule = module {
             firestorePlaylistManager = getOrNull(),
             reccoBeatsRepository = getOrNull(),
             metadataEnricher = getOrNull(),
-            
+            auroraApiClient = getOrNull(),
+            searchRepository = getOrNull()
         )
     }
 
@@ -105,7 +107,7 @@ val repositoryModule = module {
         SearchRepositoryImpl(
             lastFmRepository = getOrNull(),
             metadataEnricher = getOrNull(),
-            
+            auroraApiClient = getOrNull()
         )
     }
 
@@ -135,7 +137,7 @@ val repositoryModule = module {
     singleOf(::NewWorksRepositoryImpl) { bind<NewWorksRepository>() }
 
     // Artist data repository
-    single<ArtistRepository> { ArtistRepositoryImpl(lastFmRepository = getOrNull(), metadataEnricher = getOrNull()) }
+    single<ArtistRepository> { ArtistRepositoryImpl(lastFmRepository = getOrNull(), metadataEnricher = getOrNull(), auroraApiClient = getOrNull()) }
 
     // Firestore Liked Songs repository (core/songlike)
     single<LikedSongsRepository> { LikedSongsRepositoryImpl(userPreferences = get()) }
@@ -167,7 +169,8 @@ val repositoryModule = module {
             qobuzService = get(),
             externalLyricsService = get(),
             userPreferences = getOrNull(),
-            playbackResolver = getOrNull()
+            playbackResolver = getOrNull(),
+            auroraApiClient = getOrNull()
         )
     }
 
@@ -192,6 +195,9 @@ val repositoryModule = module {
     // Sync profile after login
     singleOf(::SyncProfileAfterLoginUseCase)
 
+    // YouTube Music account sync
+    singleOf(::YouTubeAccountSyncUseCase)
+
     // Load liked song IDs
     singleOf(::LoadLikedSongIdsUseCase)
 
@@ -210,7 +216,8 @@ val repositoryModule = module {
             likedSongsRepository = getOrNull<LikedSongsRepository>(),
             userPreferences = getOrNull<com.lin0721.linmusic.core.auth.UserPreferences>(),
             songLikeRepository = getOrNull<SongLikeRepository>(),
-            localPlaylistStore = getOrNull<com.lin0721.linmusic.core.userplaylist.LocalCustomPlaylistStore>()
+            localPlaylistStore = getOrNull<com.lin0721.linmusic.core.userplaylist.LocalCustomPlaylistStore>(),
+            auroraApiClient = getOrNull()
         )
     }
 }

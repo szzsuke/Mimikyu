@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.lin0721.linmusic.core.ui.theme.SurfaceDark
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
@@ -95,7 +96,7 @@ fun MimikyuPlaylistCover(
         modifier = modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(cornerRadius))
-            .background(Color(0xFF282828))
+            .background(SurfaceDark)
     ) {
         when (coverType) {
             MimikyuCoverType.APPLE_RECIPE -> {

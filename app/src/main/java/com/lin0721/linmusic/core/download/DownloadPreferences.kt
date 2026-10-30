@@ -30,12 +30,20 @@ data class DownloadRecord(
     val downloadedAt: Long,
     val fileSize: Long,
     val songName: String = "",
-    val artistName: String = ""
+    val artistName: String = "",
+    val coverUrl: String = "",
+    val durationSec: Long = 0L
 )
 
 // Download Folder Uri
 fun isDefaultDownloadDirectoryUri(uriString: String): Boolean =
-    runCatching { Uri.parse(uriString).authority == MediaStore.AUTHORITY }.getOrDefault(false)
+    runCatching {
+        val uri = Uri.parse(uriString)
+        uri.authority == MediaStore.AUTHORITY ||
+            uri.scheme == "file" ||
+            uriString.contains("MimikyuDownloads") ||
+            uriString.contains("downloads")
+    }.getOrDefault(false)
 
 // Download
 class DownloadPreferences(private val context: Context) {
@@ -76,7 +84,14 @@ class DownloadPreferences(private val context: Context) {
     // Uri
     private suspend fun fileExists(uriString: String): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            context.contentResolver.openInputStream(Uri.parse(uriString))?.use { true } ?: false
+            val uri = Uri.parse(uriString)
+            if (uri.scheme == "file") {
+                val path = uri.path ?: return@runCatching false
+                val f = java.io.File(path)
+                f.exists() && f.length() > 0
+            } else {
+                context.contentResolver.openInputStream(uri)?.use { true } ?: false
+            }
         }.getOrDefault(false)
     }
 
@@ -89,6 +104,24 @@ class DownloadPreferences(private val context: Context) {
     }
 
     suspend fun removeRecord(songId: Long) {
+        val record = records.first().find { it.songId == songId }
+        if (record != null) {
+            runCatching {
+                val uri = Uri.parse(record.mediaStoreUri)
+                if (uri.scheme == "file") {
+                    val f = java.io.File(uri.path ?: "")
+                    if (f.exists()) f.delete()
+                    val dot = f.name.lastIndexOf('.')
+                    val base = if (dot > 0) f.name.substring(0, dot) else f.name
+                    f.parentFile?.let { p ->
+                        java.io.File(p, "$base.ttml").delete()
+                        java.io.File(p, "$base.lrc").delete()
+                    }
+                } else {
+                    context.contentResolver.delete(uri, null, null)
+                }
+            }
+        }
         context.downloadDataStore.edit { prefs ->
             val updated = decodeRecords(prefs[KEY_RECORDS]).filterNot { it.songId == songId }
             prefs[KEY_RECORDS] = json.encodeToString(updated)

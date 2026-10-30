@@ -45,6 +45,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.lin0721.linmusic.R
+import com.lin0721.linmusic.core.ui.theme.BackgroundDark
+import com.lin0721.linmusic.core.ui.theme.MimikyuYellow
+import com.lin0721.linmusic.core.ui.theme.MimikyuCharcoal
+import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
 
 @Composable
 fun GetStartedScreen(
@@ -67,7 +71,7 @@ fun GetStartedScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(BackgroundDark)
     ) {
         // 1. Cinematic background video container - fills full screen seamlessly without clipping artifacts
         Box(
@@ -179,7 +183,7 @@ fun GetStartedScreen(
         ) {
             Text(
                 text = "Music without\nborders",
-                color = Color.White,
+                color = MimikyuSilver,
                 fontSize = 40.sp,
                 fontWeight = FontWeight.Bold,
                 lineHeight = 46.sp
@@ -201,7 +205,8 @@ fun GetStartedScreen(
                 onClick = onGetStarted,
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFE50914) // Vibrant Accent Red
+                    containerColor = MimikyuYellow,
+                    contentColor = MimikyuCharcoal
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -209,7 +214,7 @@ fun GetStartedScreen(
             ) {
                 Text(
                     text = "Get started",
-                    color = Color.White,
+                    color = MimikyuCharcoal,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
                 )

@@ -73,6 +73,12 @@ class SettingsViewModel(
 
     val crossfadeDurationMs = settingsPreferences.crossfadeDurationMs.asState(CrossfadePolicy.DEFAULT_DURATION_MS)
 
+    val playerStyle = settingsPreferences.playerStyle.asState(SettingsPreferences.PLAYER_STYLE_CLASSIC)
+
+    val animatedCoverEnabled = settingsPreferences.animatedCoverEnabled.asState(true)
+
+    val canvasOverCellular = settingsPreferences.canvasOverCellular.asState(true)
+
     val wifiOnlyPlay = settingsPreferences.wifiOnlyPlay.asState(false)
 
     val mobileAlert = settingsPreferences.mobileAlert.asState(true)
@@ -232,6 +238,12 @@ class SettingsViewModel(
     fun updateCrossfadeEnabled(enabled: Boolean) = launchSave { settingsPreferences.saveCrossfadeEnabled(enabled) }
 
     fun updateCrossfadeDurationMs(durationMs: Int) = launchSave { settingsPreferences.saveCrossfadeDurationMs(durationMs) }
+
+    fun updatePlayerStyle(style: String) = launchSave { settingsPreferences.savePlayerStyle(style) }
+
+    fun updateAnimatedCoverEnabled(enabled: Boolean) = launchSave { settingsPreferences.saveAnimatedCoverEnabled(enabled) }
+
+    fun updateCanvasOverCellular(enabled: Boolean) = launchSave { settingsPreferences.saveCanvasOverCellular(enabled) }
 
     fun updateWifiOnlyPlay(enabled: Boolean) = launchSave { settingsPreferences.saveWifiOnlyPlay(enabled) }
 

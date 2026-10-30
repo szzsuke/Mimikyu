@@ -40,7 +40,9 @@ class LocalCustomPlaylistStore(private val context: Context) {
 
     suspend fun getPlaylists(): List<UserPlaylist> = mutex.withLock {
         withContext(Dispatchers.IO) {
-            loadFromDisk().map { it.toUserPlaylist() }
+            loadFromDisk()
+                .filterNot { it.name.contains("Episodes for later", ignoreCase = true) }
+                .map { it.toUserPlaylist() }
         }
     }
 
@@ -70,6 +72,7 @@ class LocalCustomPlaylistStore(private val context: Context) {
     }
 
     suspend fun saveOrUpdatePlaylist(playlist: StoredCustomPlaylist) = mutex.withLock {
+        if (playlist.name.contains("Episodes for later", ignoreCase = true)) return@withLock
         withContext(Dispatchers.IO) {
             val list = loadFromDisk().toMutableList()
             val idx = list.indexOfFirst { it.id == playlist.id }
@@ -135,8 +138,12 @@ class LocalCustomPlaylistStore(private val context: Context) {
             val text = file.readText()
             if (text.isBlank()) emptyList() else {
                 val parsed = json.decodeFromString<List<StoredCustomPlaylist>>(text)
-                parsed.forEach { customPlaylistIds.add(it.id) }
-                parsed
+                val cleaned = parsed.filterNot { it.name.contains("Episodes for later", ignoreCase = true) }
+                if (cleaned.size != parsed.size) {
+                    saveToDisk(cleaned)
+                }
+                cleaned.forEach { customPlaylistIds.add(it.id) }
+                cleaned
             }
         }.getOrElse {
             AppLogger.e("LocalCustomPlaylistStore", "Failed to parse custom_playlists.json", it)

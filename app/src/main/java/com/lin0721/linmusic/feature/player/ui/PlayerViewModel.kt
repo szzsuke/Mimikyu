@@ -136,6 +136,18 @@ class PlayerViewModel(
         initialValue = "standard"
     )
 
+    val playerStyle: StateFlow<String> = settingsPreferences.playerStyle.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = SettingsPreferences.PLAYER_STYLE_NEW
+    )
+
+    fun updatePlayerStyle(style: String) {
+        viewModelScope.launch {
+            settingsPreferences.savePlayerStyle(style)
+        }
+    }
+
     // Current WiFi
     fun isWifiConnected(): Boolean {
         return kotlin.runCatching {

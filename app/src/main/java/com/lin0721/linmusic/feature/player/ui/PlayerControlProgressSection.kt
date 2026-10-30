@@ -39,7 +39,8 @@ fun ProgressSection(
     currentPositionProvider: () -> Long,
     duration: Long,
     onSeek: (Long) -> Unit,
-    chorusStartMs: Long? = null
+    chorusStartMs: Long? = null,
+    isModern: Boolean = false
 ) {
     var isSeeking by remember { mutableStateOf(false) }
     // raw ，seekPosition  of
@@ -57,11 +58,7 @@ fun ProgressSection(
         if (isSeeking) seekPosition else (currentPosition.toFloat() / duration).coerceIn(0f, 1f)
     } else 0f
 
-    val thumbSize by animateDpAsState(
-        targetValue = if (isSeeking) 14.dp else 8.dp,
-        animationSpec = tween(150),
-        label = "thumb_size"
-    )
+    val trackHeight = 7.dp
 
     Column(
         modifier = Modifier
@@ -124,21 +121,21 @@ fun ProgressSection(
                 ),
             contentAlignment = Alignment.CenterStart
         ) {
-            // （ 4dp）
+            // Track background
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(SurfaceLight)
+                    .height(trackHeight)
+                    .clip(RoundedCornerShape(trackHeight / 2))
+                    .background(Color.White.copy(alpha = 0.22f))
             )
 
-            // Played（）
+            // Played track
             Box(
                 modifier = Modifier
                     .fillMaxWidth(progress)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .height(trackHeight)
+                    .clip(RoundedCornerShape(trackHeight / 2))
                     .background(Color.White)
             )
 
@@ -156,33 +153,34 @@ fun ProgressSection(
                         .background(Color.White, CircleShape)
                 )
             }
-
-            // （Current）
-            if (trackWidthPx > 0f) {
-                val thumbOffsetDp = with(density) {
-                    (progress * trackWidthPx - thumbSize.toPx() / 2f).coerceIn(
-                        0f,
-                        trackWidthPx - thumbSize.toPx()
-                    ).toDp()
-                }
-                Box(
-                    modifier = Modifier
-                        .offset(x = thumbOffsetDp)
-                        .size(thumbSize)
-                        .background(Color.White, CircleShape)
-                )
-            }
         }
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             val displayPosition = if (isSeeking) (seekPosition * duration).toLong() else currentPosition
-            Text(formatTime(displayPosition), color = TextGray, fontSize = 13.sp)
-            Text(formatTime(duration), color = TextGray, fontSize = 13.sp)
+            if (isModern) {
+                Text(
+                    formatTime(displayPosition),
+                    color = Color.White.copy(alpha = 0.65f),
+                    fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Normal
+                )
+                val remainingMs = (duration - displayPosition).coerceAtLeast(0L)
+                Text(
+                    "-${formatTime(remainingMs)}",
+                    color = Color.White.copy(alpha = 0.65f),
+                    fontSize = 12.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Normal
+                )
+            } else {
+                Text(formatTime(displayPosition), color = TextGray, fontSize = 13.sp)
+                Text(formatTime(duration), color = TextGray, fontSize = 13.sp)
+            }
         }
     }
 }

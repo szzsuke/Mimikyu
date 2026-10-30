@@ -22,10 +22,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
@@ -68,6 +69,31 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+
+/**
+ * Spotify-accurate circular download badge in the app's accent color.
+ * Displays a filled circle in accent color with a centered dark downward arrow.
+ */
+@Composable
+fun DownloadedBadge(
+    modifier: Modifier = Modifier,
+    tint: Color = MaterialTheme.colorScheme.primary
+) {
+    Box(
+        modifier = modifier
+            .size(13.dp)
+            .clip(CircleShape)
+            .background(tint),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.ArrowDownward,
+            contentDescription = "Downloaded",
+            tint = com.lin0721.linmusic.core.ui.theme.BackgroundDark,
+            modifier = Modifier.size(9.dp)
+        )
+    }
+}
 
 // Songs of  UI ， of （Track/QueueItem ）
 data class SongRowData(
@@ -125,6 +151,17 @@ fun SongRow(
         else -> 10.dp
     }
 
+    val downloadPreferences: DownloadPreferences = koinInject()
+    val isDownloaded by produceState(initialValue = false, data.id, showDownloadBadge) {
+        if (showDownloadBadge) {
+            downloadPreferences.downloadedQualityFor(data.id).collect { quality ->
+                value = quality != null
+            }
+        } else {
+            value = false
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -174,16 +211,24 @@ fun SongRow(
                 )
             }
             Spacer(Modifier.height(MimikyuSpacing.xxs))
-            Text(
-                text = data.artist,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontFamily = RobotoFontFamily,
-                fontWeight = FontWeight.Normal,
-                fontSize = artistFontSize,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = if (onArtistClick != null) Modifier.clickable { onArtistClick() } else Modifier
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (showDownloadBadge && isDownloaded) {
+                    DownloadedBadge(
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 5.dp)
+                    )
+                }
+                Text(
+                    text = data.artist,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = RobotoFontFamily,
+                    fontWeight = FontWeight.Normal,
+                    fontSize = artistFontSize,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = if (onArtistClick != null) Modifier.clickable { onArtistClick() } else Modifier
+                )
+            }
         }
 
         if (data.durationText != null) {
@@ -195,25 +240,6 @@ fun SongRow(
                 fontSize = 12.sp,
                 modifier = Modifier.padding(start = MimikyuSpacing.sm)
             )
-        }
-
-        if (showDownloadBadge) {
-            val downloadPreferences: DownloadPreferences = koinInject()
-            val isDownloaded by produceState(initialValue = false, data.id) {
-                downloadPreferences.downloadedQualityFor(data.id).collect { quality ->
-                    value = quality != null
-                }
-            }
-            if (isDownloaded) {
-                Icon(
-                    Icons.Rounded.DownloadDone,
-                    contentDescription = "Downloaded",
-                    tint = DownloadedGreen,
-                    modifier = Modifier
-                        .padding(start = MimikyuSpacing.xs)
-                        .size(16.dp)
-                )
-            }
         }
 
         trailingSlot()
@@ -362,15 +388,29 @@ fun DraggableSongRow(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(2.dp))
-            Text(
-                data.artist,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                fontFamily = RobotoFontFamily,
-                fontWeight = FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            val downloadPreferences: DownloadPreferences = koinInject()
+            val isDownloaded by produceState(initialValue = false, data.id) {
+                downloadPreferences.downloadedQualityFor(data.id).collect { quality ->
+                    value = quality != null
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isDownloaded) {
+                    DownloadedBadge(
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 5.dp)
+                    )
+                }
+                Text(
+                    data.artist,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    fontFamily = RobotoFontFamily,
+                    fontWeight = FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
 

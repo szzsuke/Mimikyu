@@ -183,8 +183,22 @@ class ExternalLyricsService(
             }
         }
 
-        // 3. Supabase Cloud Object Storage fetch (~50 to 150 ms)
         val resolvedVid = cleanVid ?: YouTubeIdRegistry.findVideoIdByTitleArtist(cleanTitle, cleanArtist, durationSec)
+
+        // 3. Priority 1: YouLyPlus Word-Level TTML / Apple Music Syllables
+        // Evaluated before Supabase as top-priority source
+        val youLyTtml = fetchYouLyPlusTtml(cleanTitle, cleanArtist, durationSec)
+        if (youLyTtml.isNotEmpty()) {
+            val processed = if (youLyTtml.any { it.isSynced && !it.isGap }) LyricParser.processLinesWithGaps(youLyTtml) else youLyTtml
+            val sanitized = filterHeaderMetadata(processed, title, artist)
+            memoryCache[cacheKey] = sanitized
+            saveToDiskCache(cleanVid ?: resolvedVid, cleanTitle, cleanArtist, sanitized)
+            AppLogger.i(TAG, "Loaded word-level TTML from YouLyPlus (Priority 1) for '$cleanTitle'")
+            return sanitized
+        }
+
+        // 4. Priority 2: Supabase Cloud Object Storage fetch (~50 to 150 ms)
+        // If YouLyPlus does NOT have TTML for the song, check Supabase
         val isResolvedBlacklisted = isBlacklistedFromSupabase || isSupabaseBlacklisted(resolvedVid, cleanTitle, cleanArtist)
         if (!isResolvedBlacklisted && !resolvedVid.isNullOrBlank() && !resolvedVid.startsWith("track_") && !resolvedVid.startsWith("placeholder_")) {
             val cloudLyrics = fetchZohoCloudTtml(resolvedVid, cleanTitle, cleanArtist, durationSec)
@@ -193,12 +207,12 @@ class ExternalLyricsService(
                 val sanitized = filterHeaderMetadata(processed, title, artist)
                 memoryCache[cacheKey] = sanitized
                 saveToDiskCache(resolvedVid, cleanTitle, cleanArtist, sanitized)
-                AppLogger.i(TAG, "Loaded TTML lyrics from Supabase Cloud in zero-lag tier for '$cleanTitle' (videoId=$resolvedVid)")
+                AppLogger.i(TAG, "Loaded TTML lyrics from Supabase Cloud (Priority 2) for '$cleanTitle' (videoId=$resolvedVid)")
                 return sanitized
             }
         }
 
-        // 4. ArchiveTune-inspired concurrent multi-source cascade (SimpMusic, Unison, YouLyPlus, BetterLyrics, LRCLIB, Kugou, NetEase)
+        // 5. Priority 3: ArchiveTune-inspired concurrent multi-source cascade (SimpMusic, Unison, YouLyPlus LRC, BetterLyrics, LRCLIB, Kugou, NetEase)
         val rawLyrics = fetchLyricsRaw(cleanTitle, cleanArtist, durationSec, resolvedVid)
         if (rawLyrics.isNotEmpty()) {
             val processed = if (rawLyrics.any { it.isSynced && !it.isGap }) LyricParser.processLinesWithGaps(rawLyrics) else rawLyrics
@@ -416,10 +430,10 @@ class ExternalLyricsService(
     }
 
     /**
-     * ArchiveTune-inspired Provider 3: YouLyPlus
-     * Multi-mirror client for Apple Music word-level TTML and line-synced LRC.
+     * Priority 1 Provider: YouLyPlus Word-Level TTML / Apple Music Syllables.
+     * Evaluated BEFORE Supabase as the top-priority source for word-level lyrics.
      */
-    private suspend fun fetchYouLyPlus(title: String, artist: String, durationSec: Int): List<LyricLine> {
+    private suspend fun fetchYouLyPlusTtml(title: String, artist: String, durationSec: Int): List<LyricLine> {
         val baseUrls = listOf(
             "https://lyricsplus.binimum.org",
             "https://lyricsplus.prjktla.my.id",
@@ -441,10 +455,10 @@ class ExternalLyricsService(
                     val ttml = obj.optString("ttml", "")
                     if (ttml.isNotBlank() && (ttml.contains("<tt") || ttml.contains("<span") || ttml.contains("<p"))) {
                         val parsed = LyricParser.parseTtml(ttml)
-                        if (isValidLyrics(parsed) && !hasLanguageMismatch(title, artist, parsed)) {
+                        if (isValidLyrics(parsed) && !hasLanguageMismatch(title, artist, parsed) && parsed.any { it.words.isNotEmpty() }) {
                             val lastLine = parsed.lastOrNull { !it.isGap }
                             if (durationSec <= 0 || lastLine == null || kotlin.math.abs((lastLine.timeMs + lastLine.durationMs) / 1000 - durationSec) <= 15) {
-                                AppLogger.i(TAG, "YouLyPlus TTML hit for '$candTitle' by '$candArtist' (${parsed.size} lines)")
+                                AppLogger.i(TAG, "YouLyPlus Priority TTML hit for '$candTitle' by '$candArtist' (${parsed.size} lines)")
                                 return@runCatching parsed
                             }
                         }
@@ -454,8 +468,8 @@ class ExternalLyricsService(
 
                 if (ttmlLines.isNotEmpty()) return ttmlLines
 
-                // 2. Try JSON lyrics array or LRC line-level
-                val parsedLines = runCatching {
+                // 2. Try JSON lyrics array with word-level syllabus
+                val jsonLines = runCatching {
                     val resp = httpClient.get("$baseUrl/v2/lyrics/get") {
                         parameter("title", candTitle)
                         if (candArtist.isNotBlank()) parameter("artist", candArtist)
@@ -464,8 +478,6 @@ class ExternalLyricsService(
                         header("User-Agent", "ArchiveTune/1.0")
                     }.bodyAsText()
                     val obj = JSONObject(resp)
-
-                    // Case A: Apple Music JSON lyrics array with word-level syllabus
                     val lyricsArray = obj.optJSONArray("lyrics")
                     if (lyricsArray != null && lyricsArray.length() > 0) {
                         val lines = mutableListOf<LyricLine>()
@@ -491,13 +503,44 @@ class ExternalLyricsService(
                             }
                             lines.add(LyricLine(timeMs = timeMs, durationMs = durMs, text = text, isSynced = true, words = words))
                         }
-                        if (isValidLyrics(lines) && !hasLanguageMismatch(title, artist, lines)) {
-                            AppLogger.i(TAG, "YouLyPlus JSON lyrics hit for '$candTitle' by '$candArtist' (${lines.size} lines, words=${lines.count { it.words.isNotEmpty() }})")
+                        if (isValidLyrics(lines) && !hasLanguageMismatch(title, artist, lines) && lines.any { it.words.isNotEmpty() }) {
+                            AppLogger.i(TAG, "YouLyPlus Priority word-synced JSON hit for '$candTitle' by '$candArtist' (${lines.size} lines)")
                             return@runCatching lines
                         }
                     }
+                    emptyList()
+                }.getOrDefault(emptyList())
 
-                    // Case B: standard LRC string
+                if (jsonLines.isNotEmpty()) return jsonLines
+            }
+        }
+        return emptyList()
+    }
+
+    /**
+     * Multi-mirror client for Apple Music word-level TTML or line-synced LRC.
+     */
+    private suspend fun fetchYouLyPlus(title: String, artist: String, durationSec: Int): List<LyricLine> {
+        val wordSynced = fetchYouLyPlusTtml(title, artist, durationSec)
+        if (wordSynced.isNotEmpty()) return wordSynced
+
+        val baseUrls = listOf(
+            "https://lyricsplus.binimum.org",
+            "https://lyricsplus.prjktla.my.id",
+            "https://lyricsplus.atomix.one"
+        )
+        val pairs = extractCandidatePairs(title, artist)
+        for (baseUrl in baseUrls) {
+            for ((candTitle, candArtist) in pairs) {
+                val lrcLines = runCatching {
+                    val resp = httpClient.get("$baseUrl/v2/lyrics/get") {
+                        parameter("title", candTitle)
+                        if (candArtist.isNotBlank()) parameter("artist", candArtist)
+                        if (durationSec > 0) parameter("duration", durationSec)
+                        header("Accept", "application/json")
+                        header("User-Agent", "ArchiveTune/1.0")
+                    }.bodyAsText()
+                    val obj = JSONObject(resp)
                     val lrc = obj.optString("lyrics", "")
                     if (lrc.isNotBlank() && lrc.contains("[")) {
                         val parsed = LyricParser.parseLrc(lrc)
@@ -509,7 +552,7 @@ class ExternalLyricsService(
                     emptyList()
                 }.getOrDefault(emptyList())
 
-                if (parsedLines.isNotEmpty()) return parsedLines
+                if (lrcLines.isNotEmpty()) return lrcLines
             }
         }
         return emptyList()
@@ -1341,7 +1384,20 @@ class ExternalLyricsService(
     }
 
     private val explicitMetadataTagRegex = Regex(
-        """^(?:\[|\()? *(?:title|track|song|artist|singer|album|written by|produced by|composed by|lyrics by|arranged by|mixed by|mastered by|by|Lyrics|\u4f5c\u66f2|\u7f16\u66f2|\u6b4c\u624b|\u6b4c\u66f2|\u4e13\u8f91|\u6f14\u5531|Producer|\u76d1\u5236|Harmony) *[:：-] *.*""",
+        """(?i)^(?:\[|\()? *(?:""" +
+        """engineered(?: by)?|assistant engineer(?:ed)?(?: by)?|recording engineer(?: by)?|""" +
+        """mix(?:ed|ing)?(?: by)?|master(?:ed|ing)?(?: by)?|sound engineer(?: by)?|""" +
+        """photograph(?:y)?(?: by)?|photo(?:s)?(?: by)?|artwork(?: by)?|cover(?: art)?(?: by)?|""" +
+        """directed by|video by|produced by|co-produced by|producer|executive producer(?: by)?|""" +
+        """written by|composed by|lyrics by|words by|music by|arranged by|orchestrated by|""" +
+        """programmed by|programming by|additional production(?: by)?|additional vocals(?: by)?|""" +
+        """recorded (?:at|by)|mixed (?:at|by)|mastered (?:at|by)|studio|""" +
+        """synced by|sync by|sync|lrc by|transcribed by|subtitles by|timed by|timing by|""" +
+        """copyright|all rights reserved|published by|publisher|label|records|recordings|""" +
+        """title|track|song|artist|singer|album|作词|作曲|编曲|歌手|歌曲|专辑|演唱|制作|监制|混音|母带""" +
+        """) *(?:[:：\-–—]|by\b|\bat\b|\|) *.*$|""" +
+        """(?i)^--+.*(?:lrc|lyrics?).*--+$|""" +
+        """(?i)^www\.[a-z0-9\.\-]+\.[a-z]{2,}.*""",
         RegexOption.IGNORE_CASE
     )
 
@@ -1376,45 +1432,57 @@ class ExternalLyricsService(
 
         val filtered = lines.filterIndexed { index, line ->
             if (line.isGap) return@filterIndexed true
-            // \u4ec5\u5bf9\u524d\u594f\u671f\u95f4（\u524d 25 \u79d2\u6216\u524d 4 \u884c）\u51fa\u73b0 of \u5934\u90e8\u4fe1\u606f\u884c\u8fdb\u884c\u8fc7\u6ee4
-            if (line.timeMs > 25_000L && index >= 4) return@filterIndexed true
 
             val trimmed = line.text.trim()
             val normText = normalizeString(trimmed)
             if (normText.isEmpty()) return@filterIndexed false
 
-            // 1. \u660e\u786e of \u5143\u6570\u636e\u524d\u7f00（\u5982 "Title: Flashing Lights", "Artist: Kanye West", "Album: Graduation"）
+            // 1. Explicit production, engineering, photography, and crew credits (applies anywhere in song)
             if (explicitMetadataTagRegex.matches(trimmed)) {
-                AppLogger.d(TAG, "Stripped explicit metadata line: '${line.text}'")
+                AppLogger.d(TAG, "Stripped explicit credits/metadata line: '${line.text}'")
                 return@filterIndexed false
             }
 
-            // 2. \u5339\u914d\u5e26\u6709 feat/ft  of \u5ba2\u4e32\u8bf4\u660e\u884c（\u4f8b\u5982 "(feat. Dwele)", "（feat. Dwele）", "[ft. Drake]"）
-            val isBracketed = trimmed.startsWith("(") || trimmed.startsWith("[") || trimmed.startsWith("（") || trimmed.startsWith("【")
-            val cleanNorm = normText.replace(" ", "")
-            if ((isBracketed || cleanNorm.startsWith("feat") || cleanNorm.startsWith("ft")) &&
-                (cleanNorm.contains("feat") || cleanNorm.contains("ft") || cleanNorm.contains("featuring"))) {
-                AppLogger.d(TAG, "Stripped feat header line: '${line.text}'")
-                return@filterIndexed false
-            }
-
-            // 3. \u590d\u5408\u683c\u5f0f\u5143\u6570\u636e\u884c（\u5982 "Flashing Lights - Kanye West" or "Kanye West - Flashing Lights" \u6216\u4ee5 lyrics \u7ed3\u5c3e）
-            if (cleanT.isNotEmpty() && cleanA.isNotEmpty()) {
-                val hasSeparator = trimmed.contains("-") || trimmed.contains("—") || trimmed.contains("/") || trimmed.contains("|")
-                if (hasSeparator && normText.contains(cleanT) && normText.contains(cleanA)) {
-                    AppLogger.d(TAG, "Stripped compound metadata header line: '${line.text}'")
+            // 2. Pure isolated title tag at 0s-3s (metadata tag before vocals start).
+            // NOTE: Only stripped if strictly the bare song title alone before intro finishes;
+            // actual sung lines containing the song name are preserved.
+            if (index <= 1 && line.timeMs <= 3_000L && cleanT.isNotEmpty() && normText == cleanT) {
+                val nextLineTime = lines.getOrNull(index + 1)?.timeMs ?: 0L
+                if (nextLineTime >= 5_000L || line.durationMs == 0L) {
+                    AppLogger.d(TAG, "Stripped isolated title metadata tag at start: '${line.text}'")
                     return@filterIndexed false
                 }
             }
-            if (trimmed.endsWith("lyrics", ignoreCase = true) && (normText.contains(cleanT) || normText.contains(cleanA))) {
-                AppLogger.d(TAG, "Stripped title lyrics header line: '${line.text}'")
-                return@filterIndexed false
-            }
 
-            // 4. \u7b2c\u4e00\u884c（0\u79d2\u65f6）\u4ec5\u6709\u7eaf\u6b4c\u624b\u540d\u5b57\u6807\u7b7e（\u5982\u72ec\u7acb\u4e00\u884c of  "Kanye West"）
+            // 3. Isolated artist credit line at 0s
             if (index == 0 && line.timeMs == 0L && cleanA.isNotEmpty() && normText == cleanA) {
                 AppLogger.d(TAG, "Stripped isolated artist credit line at 0s: '${line.text}'")
                 return@filterIndexed false
+            }
+
+            // 4. Intro header tags (first 4 lines / before 25s)
+            if (line.timeMs <= 25_000L && index < 4) {
+                // Bracketed feat/ft header lines (e.g. "(feat. Dwele)", "[ft. Drake]")
+                val isBracketed = trimmed.startsWith("(") || trimmed.startsWith("[") || trimmed.startsWith("（") || trimmed.startsWith("【")
+                val cleanNorm = normText.replace(" ", "")
+                if ((isBracketed || cleanNorm.startsWith("feat") || cleanNorm.startsWith("ft")) &&
+                    (cleanNorm.contains("feat") || cleanNorm.contains("ft") || cleanNorm.contains("featuring"))) {
+                    AppLogger.d(TAG, "Stripped feat header line: '${line.text}'")
+                    return@filterIndexed false
+                }
+
+                // Compound metadata lines like "Song - Artist" or ending with "Lyrics"
+                if (cleanT.isNotEmpty() && cleanA.isNotEmpty()) {
+                    val hasSeparator = trimmed.contains("-") || trimmed.contains("—") || trimmed.contains("/") || trimmed.contains("|")
+                    if (hasSeparator && normText.contains(cleanT) && normText.contains(cleanA)) {
+                        AppLogger.d(TAG, "Stripped compound metadata header line: '${line.text}'")
+                        return@filterIndexed false
+                    }
+                }
+                if (trimmed.endsWith("lyrics", ignoreCase = true) && (normText.contains(cleanT) || normText.contains(cleanA))) {
+                    AppLogger.d(TAG, "Stripped title lyrics header line: '${line.text}'")
+                    return@filterIndexed false
+                }
             }
 
             true

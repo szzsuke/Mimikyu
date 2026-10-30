@@ -27,8 +27,105 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
 
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.LocalTextStyle
+
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
+import com.lin0721.linmusic.core.ui.theme.SFProFontFamily
+
+internal val LOVE_WORDS_REGEX = Regex(
+    "\\b(love|loves|loved|loving|lover|lovers|lovely|darling|darlin|darlin'|sweetheart|sweethearts|honey|sweetie|sweeties|dear|dearest|babe|babes|baby|kiss|kisses|kissed|kissing|hug|hugs|hugged|hugging|cherish|cherishes|cherished|cherishing|adore|adores|adored|adoring|beloved|heart|hearts|heartbeat|heartbeats|heartbreak|heartbroken|romance|romantic|passion|passionate|affection|affectionate|forever|amour|amore)\\b",
+    RegexOption.IGNORE_CASE
+)
+
+fun appendStyledLoveWord(
+    builder: AnnotatedString.Builder,
+    wordText: String,
+    isPastOrCurrent: Boolean
+) {
+    val matches = LOVE_WORDS_REGEX.findAll(wordText).toList()
+    if (matches.isEmpty()) {
+        val color = if (isPastOrCurrent) Color.White else Color.White.copy(alpha = 0.40f)
+        builder.withStyle(SpanStyle(color = color)) {
+            append(wordText)
+        }
+    } else {
+        var lastIdx = 0
+        for (m in matches) {
+            if (m.range.first > lastIdx) {
+                val normalPart = wordText.substring(lastIdx, m.range.first)
+                val normalColor = if (isPastOrCurrent) Color.White else Color.White.copy(alpha = 0.40f)
+                builder.withStyle(SpanStyle(color = normalColor)) {
+                    append(normalPart)
+                }
+            }
+            val lovePart = wordText.substring(m.range.first, m.range.last + 1)
+            if (isPastOrCurrent) {
+                builder.withStyle(SpanStyle(color = MimikyuPink, fontWeight = FontWeight.Bold)) {
+                    append(lovePart)
+                }
+            } else {
+                builder.withStyle(SpanStyle(color = Color.White.copy(alpha = 0.40f))) {
+                    append(lovePart)
+                }
+            }
+            lastIdx = m.range.last + 1
+        }
+        if (lastIdx < wordText.length) {
+            val remainingPart = wordText.substring(lastIdx)
+            val normalColor = if (isPastOrCurrent) Color.White else Color.White.copy(alpha = 0.40f)
+            builder.withStyle(SpanStyle(color = normalColor)) {
+                append(remainingPart)
+            }
+        }
+    }
+}
+
+fun buildAnnotatedLoveString(
+    text: String,
+    baseColor: Color = Color.White,
+    loveColor: Color = MimikyuPink,
+    isHighlighted: Boolean = true
+): AnnotatedString {
+    if (!isHighlighted || loveColor == baseColor) {
+        return AnnotatedString(text, spanStyles = listOf(AnnotatedString.Range(SpanStyle(color = baseColor), 0, text.length)))
+    }
+    val matches = LOVE_WORDS_REGEX.findAll(text).toList()
+    if (matches.isEmpty()) {
+        return AnnotatedString(text, spanStyles = listOf(AnnotatedString.Range(SpanStyle(color = baseColor), 0, text.length)))
+    }
+    return buildAnnotatedString {
+        var lastIdx = 0
+        for (m in matches) {
+            if (m.range.first > lastIdx) {
+                val normalPart = text.substring(lastIdx, m.range.first)
+                withStyle(SpanStyle(color = baseColor)) {
+                    append(normalPart)
+                }
+            }
+            val lovePart = text.substring(m.range.first, m.range.last + 1)
+            withStyle(SpanStyle(color = loveColor, fontWeight = FontWeight.Bold)) {
+                append(lovePart)
+            }
+            lastIdx = m.range.last + 1
+        }
+        if (lastIdx < text.length) {
+            val remainingPart = text.substring(lastIdx)
+            withStyle(SpanStyle(color = baseColor)) {
+                append(remainingPart)
+            }
+        }
+    }
+}
 
 // Spotify-style active lyric line above song title with fixed height to prevent element shifting
 @Composable
@@ -37,61 +134,135 @@ fun MiniLyricLine(
     currentLyricIndex: Int,
     isPlaying: Boolean,
     isLyricsLoading: Boolean = false,
+    isModern: Boolean = false,
+    currentPositionProvider: () -> Long = { 0L },
     onOpenFullScreen: () -> Unit = {}
 ) {
     val isPureMusic = lyrics.size == 1 && lyrics[0].text == "Instrumental"
 
-    val firstRealLine = remember(lyrics) {
-        lyrics.firstOrNull { !it.isGap && it.text.isNotBlank() }?.text.orEmpty()
-    }
-
     val currentLine = lyrics.getOrNull(currentLyricIndex)
+
+    val currentPos = currentPositionProvider()
+    val isSinging = if (currentLine != null && !currentLine.isGap && currentLine.text.isNotBlank() && !isPureMusic) {
+        val lineStart = currentLine.timeMs
+        val lastWordEnd = currentLine.words.lastOrNull()?.let { lineStart + it.startOffsetMs + it.durationMs }
+        val lineEnd = when {
+            lastWordEnd != null && lastWordEnd > lineStart -> lastWordEnd + 350L
+            currentLine.durationMs > 0L -> lineStart + currentLine.durationMs
+            else -> {
+                val nextTime = lyrics.getOrNull(currentLyricIndex + 1)?.timeMs
+                if (nextTime != null && nextTime > lineStart) minOf(nextTime, lineStart + 5000L) else lineStart + 4500L
+            }
+        }
+        currentPos in lineStart..lineEnd
+    } else false
 
     val currentText = when {
         isPureMusic -> "Instrumental"
         lyrics.isEmpty() -> ""
+        isSinging -> currentLine!!.text
         currentLine != null && !currentLine.isGap && currentLine.text.isNotBlank() -> currentLine.text
         currentLine != null && currentLine.isGap -> {
             val nextLine = lyrics.drop(currentLyricIndex + 1).firstOrNull { !it.isGap && it.text.isNotBlank() }?.text
-            nextLine ?: firstRealLine
+            nextLine ?: ""
         }
-        else -> firstRealLine
+        else -> lyrics.firstOrNull { !it.isGap && it.text.isNotBlank() }?.text.orEmpty()
     }
 
-    // Always maintain a fixed height container so song title, controls and progress bar NEVER move or jump
+    val annotatedLyric = remember(currentLine, currentPos, currentText) {
+        if (currentText.isBlank()) {
+            AnnotatedString("")
+        } else if (currentLine != null && currentLine.words.isNotEmpty()) {
+            buildAnnotatedString {
+                currentLine.words.forEach { word ->
+                    val isPastOrCurrent = currentPos >= (currentLine.timeMs + word.startOffsetMs)
+                    appendStyledLoveWord(
+                        builder = this,
+                        wordText = word.text,
+                        isPastOrCurrent = isPastOrCurrent
+                    )
+                }
+            }
+        } else if (currentText.isNotBlank()) {
+            val words = currentText.split(Regex("\\s+")).filter { it.isNotBlank() }
+            if (words.isNotEmpty()) {
+                val lineStart = currentLine?.timeMs ?: 0L
+                val lineDur = (currentLine?.durationMs?.takeIf { it > 0L } ?: 3000L).coerceAtLeast(1500L)
+                val step = lineDur / words.size
+                buildAnnotatedString {
+                    words.forEachIndexed { index, word ->
+                        val wordTime = lineStart + (index * step)
+                        val isPastOrCurrent = currentPos >= wordTime
+                        appendStyledLoveWord(
+                            builder = this,
+                            wordText = word,
+                            isPastOrCurrent = isPastOrCurrent
+                        )
+                        if (index < words.lastIndex) {
+                            append(" ")
+                        }
+                    }
+                }
+            } else {
+                buildAnnotatedLoveString(currentText, baseColor = Color.White, loveColor = MimikyuPink)
+            }
+        } else {
+            AnnotatedString("")
+        }
+    }
+
+    // Centered 2-Line Subtitle-Style Lyrics with cinematic drop shadow and transparent background
+    // Fixed height container (62.dp) ensures controls and progress bar NEVER move or jump
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(48.dp)
+            .offset(y = (-4).dp)
             .padding(horizontal = MimikyuSpacing.lg)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onOpenFullScreen
             ),
-        contentAlignment = Alignment.TopStart
+        contentAlignment = Alignment.TopEnd
     ) {
         if (currentText.isNotBlank()) {
             AnimatedContent(
                 targetState = currentText,
                 transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(200)) },
+                contentAlignment = Alignment.TopEnd,
+                modifier = Modifier.fillMaxSize(),
                 label = "active_lyric"
-            ) { text ->
+            ) { _ ->
                 Text(
-                    text = text,
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 24.sp,
+                    text = annotatedLyric,
+                    modifier = Modifier.fillMaxWidth(),
+                    fontSize = 15.sp,
+                    fontFamily = SFProFontFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 21.sp,
+                    textAlign = TextAlign.End,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    style = LocalTextStyle.current.copy(
+                        shadow = Shadow(
+                            color = Color.Black.copy(alpha = 0.85f),
+                            offset = Offset(0f, 1.5f),
+                            blurRadius = 6f
+                        )
+                    )
                 )
             }
         } else if (isLyricsLoading && lyrics.isEmpty()) {
-            LoadingDotsAnimation(
-                color = Color.White.copy(alpha = 0.4f),
-                isPlaying = isPlaying
-            )
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                LoadingDotsAnimation(
+                    color = Color.White.copy(alpha = 0.4f),
+                    isPlaying = isPlaying
+                )
+            }
         }
     }
 }

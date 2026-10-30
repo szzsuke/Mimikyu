@@ -29,6 +29,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.lin0721.linmusic.core.preferences.SettingsPreferences
 import com.lin0721.linmusic.LocalBottomOverlayInset
 import com.lin0721.linmusic.core.player.CrossfadePolicy
 import com.lin0721.linmusic.feature.player.ui.LyricCapsuleSlider
@@ -80,6 +88,8 @@ fun PlaybackDownloadSettingsView(viewModel: SettingsViewModel) {
     val streamCacheEnabled by viewModel.streamCacheEnabled.collectAsStateWithLifecycle()
     val downloadFolderUri by viewModel.downloadFolderUri.collectAsStateWithLifecycle()
     val downloadLyricsEnabled by viewModel.downloadLyricsEnabled.collectAsStateWithLifecycle()
+    val animatedCoverEnabled by viewModel.animatedCoverEnabled.collectAsStateWithLifecycle()
+    val canvasOverCellular by viewModel.canvasOverCellular.collectAsStateWithLifecycle()
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -160,6 +170,23 @@ fun PlaybackDownloadSettingsView(viewModel: SettingsViewModel) {
                             endLabel = "Long"
                         )
                     }
+                }
+
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                SettingsSwitchRow(
+                    title = "Animated Cover Art",
+                    subtitle = "Stream looping motion/canvas cover art when available (Apple Music & Tidal)",
+                    checked = animatedCoverEnabled,
+                    onCheckedChange = { viewModel.updateAnimatedCoverEnabled(it) }
+                )
+                if (animatedCoverEnabled) {
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    SettingsSwitchRow(
+                        title = "Stream Motion Art on Cellular",
+                        subtitle = "Allow streaming motion cover clips when connected to mobile data",
+                        checked = canvasOverCellular,
+                        onCheckedChange = { viewModel.updateCanvasOverCellular(it) }
+                    )
                 }
             }
         }

@@ -86,27 +86,41 @@ object LyricParser {
         return false
     }
 
+    private val hexEntityRegex = Regex("""&#x([0-9a-fA-F]+);?""")
+    private val decEntityRegex = Regex("""&#([0-9]+);?""")
+    private val brokenContractionRegex = Regex("""\b([a-zA-Z]+)\s*['’]\s*([a-zA-Z]+)\b""")
+    private val brokenHyphenRegex = Regex("""\b([a-zA-Z]+)-\s+([a-zA-Z]+)\b""")
+
     private val brokenWordGapRegexes = listOf(
-        Regex("""\b([a-zA-Z]{2,}) (ty|ble|tion|sion|ment|ness|ful|less)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(to) (gether)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b([a-zA-Z]{2,}) (ty|ble|tion|sion|ment|ness|ful|less|ly|ing|ed|er|est|en|es)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(to) (gether|day|night|morrow)\b""", RegexOption.IGNORE_CASE),
         Regex("""\b(eve) (ry|ryone|rybody|rything)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(no|some|any) (body|thing|one)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(for) (ever)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(al) (though|ways|most)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(in) (to)\b""", RegexOption.IGNORE_CASE),
-        Regex("""\b(with) (out|in)\b""", RegexOption.IGNORE_CASE)
+        Regex("""\b(every|some|any|no) (body|thing|one|where)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(for) (ever|get|give)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(al) (though|ways|most|ready|right)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(be) (cause|fore|hind|tween|side|lieve|coming)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(in) (to|side|stead)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(out) (side|standing)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(with) (out|in)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(can) (not)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(may) (be)\b""", RegexOption.IGNORE_CASE)
     )
 
     fun fixWordGaps(text: String): String {
         var res = text
+        res = brokenContractionRegex.replace(res) { match -> "${match.groupValues[1]}'${match.groupValues[2]}" }
+        res = brokenHyphenRegex.replace(res) { match -> "${match.groupValues[1]}${match.groupValues[2]}" }
         for (regex in brokenWordGapRegexes) {
             res = regex.replace(res) { match -> "${match.groupValues[1]}${match.groupValues[2]}" }
         }
         return res
     }
 
-    private val suffixSyllableRegex = Regex("""^(ty|ble|tion|sion|ment|ness|ful|less|ly|ing|ed)$""", RegexOption.IGNORE_CASE)
+    private val suffixSyllableRegex = Regex("""^(ty|ble|tion|sion|ment|ness|ful|less|ly|ing|ed|er|est|en|es|s|ity|ous)$""", RegexOption.IGNORE_CASE)
+    private val compoundPrefixRegex = Regex("""^(to|for|al|be|in|out|with|every|some|any|no|can|may)$""", RegexOption.IGNORE_CASE)
+    private val compoundSuffixRegex = Regex("""^(gether|day|night|morrow|ever|get|give|though|ways|most|ready|right|cause|fore|hind|tween|side|lieve|stead|standing|out|in|body|thing|one|where|not|be)$""", RegexOption.IGNORE_CASE)
     private val stemSyllableRegex = Regex("""^[a-zA-Z]{2,}$""")
+    private val contractionSyllableRegex = Regex("""^['’]([a-zA-Z]+)$""")
 
     fun stitchSyllableGaps(words: List<WordInfo>): List<WordInfo> {
         if (words.size <= 1) return words
@@ -114,7 +128,11 @@ object LyricParser {
         for (i in words.indices) {
             val curr = words[i]
             val next = words.getOrNull(i + 1)
-            if (next != null && curr.text.endsWith(" ") && stemSyllableRegex.matches(curr.text.trim()) && suffixSyllableRegex.matches(next.text.trim())) {
+            if (next != null && curr.text.endsWith(" ") &&
+                ((stemSyllableRegex.matches(curr.text.trim()) && suffixSyllableRegex.matches(next.text.trim())) ||
+                 contractionSyllableRegex.matches(next.text.trim()) ||
+                 (compoundPrefixRegex.matches(curr.text.trim()) && compoundSuffixRegex.matches(next.text.trim())))
+            ) {
                 result.add(curr.copy(text = curr.text.trimEnd()))
             } else {
                 result.add(curr)
@@ -158,11 +176,44 @@ object LyricParser {
     }
 
     fun unescapeXml(text: String): String {
-        return text.replace("&apos;", "'")
+        var res = text
+            .replace("&apos;", "'")
             .replace("&quot;", "\"")
             .replace("&amp;", "&")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
+            .replace("&rsquo;", "'")
+            .replace("&lsquo;", "'")
+            .replace("&ldquo;", "\"")
+            .replace("&rdquo;", "\"")
+            .replace("&hellip;", "…")
+            .replace("&ndash;", "–")
+            .replace("&mdash;", "—")
+            .replace("&nbsp;", " ")
+            .replace("&copy;", "©")
+            .replace("&trade;", "™")
+            .replace("&reg;", "®")
+        res = hexEntityRegex.replace(res) { match ->
+            try {
+                val cp = match.groupValues[1].toInt(16)
+                String(Character.toChars(cp))
+            } catch (e: Exception) {
+                match.value
+            }
+        }
+        res = decEntityRegex.replace(res) { match ->
+            try {
+                val cp = match.groupValues[1].toInt(10)
+                String(Character.toChars(cp))
+            } catch (e: Exception) {
+                match.value
+            }
+        }
+        return res
+    }
+
+    fun sanitizeLyricText(text: String): String {
+        return fixWordGaps(unescapeXml(text))
     }
 
     fun escapeXml(text: String): String {
@@ -228,7 +279,7 @@ object LyricParser {
      * \u4e3a\u666e\u901a\u5355\u884c LRC \u6b4c\u8bcd\u81ea\u52a8\u5408\u6210\u6beb\u79d2\u7ea7\u5b57/\u8bcd\u7ea7\u65f6\u95f4\u6233，\u4ea7\u51fa\u6807\u51c6 TTML \u7cbe\u5ea6。
      */
     fun synthesizeWordTimings(line: LyricLine): List<WordInfo> {
-        val rawText = line.text.trim()
+        val rawText = sanitizeLyricText(line.text.trim())
         if (rawText.isEmpty() || line.durationMs <= 0L) return emptyList()
 
         val isSpaced = rawText.contains(" ")
@@ -291,7 +342,7 @@ object LyricParser {
             val lineEndTime = parseTtmlTimestamp(endStr) ?: lineStartTime
             val lineDuration = (lineEndTime - lineStartTime).coerceAtLeast(0L)
 
-            val rawLineText = fixWordGaps(unescapeXml(tagStripRegex.replace(body, "")).replace(Regex("""\s+"""), " ").trim())
+            val rawLineText = sanitizeLyricText(tagStripRegex.replace(body, "").replace(Regex("""\s+"""), " ").trim())
             if (rawLineText.isEmpty() || isJunkOrCreditLine(rawLineText, lineStartTime)) return@mapNotNull null
 
             val spanMatches = spanRegex.findAll(body).toList()
@@ -308,7 +359,7 @@ object LyricParser {
 
                 val wStartTime = parseTtmlTimestamp(wBeginStr) ?: lineStartTime
                 val wEndTime = parseTtmlTimestamp(wEndStr) ?: wStartTime
-                val rawWord = unescapeXml(tagStripRegex.replace(spanBody, ""))
+                val rawWord = sanitizeLyricText(tagStripRegex.replace(spanBody, ""))
                 val cleanWord = rawWord.trim()
 
                 if (cleanWord.isNotEmpty()) {
@@ -317,7 +368,7 @@ object LyricParser {
                     if (!hasSpace && i < spanMatches.lastIndex) {
                         val nextSpan = spanMatches[i + 1]
                         val inBetween = body.substring((spanMatch.range.last + 1).coerceAtMost(body.length), nextSpan.range.first.coerceAtMost(body.length))
-                        if (inBetween.any { it.isWhitespace() }) {
+                        if (inBetween.contains(" ") && !inBetween.contains("\n") && !inBetween.contains("\r")) {
                             hasSpace = true
                         }
                     }
@@ -344,9 +395,9 @@ object LyricParser {
             val fullText = if (rawLineText.isNotBlank()) {
                 rawLineText
             } else if (stitchedWords.isNotEmpty()) {
-                fixWordGaps(stitchedWords.joinToString("") { it.text }.trim())
+                sanitizeLyricText(stitchedWords.joinToString("") { it.text }.trim())
             } else {
-                fixWordGaps(unescapeXml(tagStripRegex.replace(body, "").trim()))
+                sanitizeLyricText(tagStripRegex.replace(body, "").trim())
             }
             if (fullText.isEmpty() || isJunkOrCreditLine(fullText, lineStartTime)) return@mapNotNull null
 
@@ -403,13 +454,13 @@ object LyricParser {
                 krcWordRegex.findAll(wordsContent).forEach { wordMatch ->
                     val startOffset = wordMatch.groupValues[1].toLongOrNull() ?: 0L
                     val duration = wordMatch.groupValues[2].toLongOrNull() ?: 0L
-                    val wordText = wordMatch.groupValues[3]
+                    val wordText = sanitizeLyricText(wordMatch.groupValues[3])
 
                     wordsList.add(WordInfo(wordText, startOffset, duration))
                     fullTextBuilder.append(wordText)
                 }
 
-                val fullText = fullTextBuilder.toString().trim()
+                val fullText = sanitizeLyricText(fullTextBuilder.toString().trim())
                 if (fullText.isBlank() || isJunkOrCreditLine(fullText, lineStartTime)) return@let null
 
                 LyricLine(
@@ -441,13 +492,13 @@ object LyricParser {
                     val absoluteTime = wordMatch.groupValues[1].toLongOrNull() ?: 0L
                     val startOffset = absoluteTime - lineStartTime // \u8ba1\u7b97\u76f8\u5bf9\u4e8e\u884c\u5f00\u59cb\u65f6\u95f4 of \u504f\u79fb\u91cf
                     val duration = wordMatch.groupValues[2].toLongOrNull() ?: 0L
-                    val wordText = wordMatch.groupValues[3]
+                    val wordText = sanitizeLyricText(wordMatch.groupValues[3])
 
                     wordsList.add(WordInfo(wordText, startOffset, duration))
                     fullTextBuilder.append(wordText)
                 }
 
-                val fullText = fullTextBuilder.toString().trim()
+                val fullText = sanitizeLyricText(fullTextBuilder.toString().trim())
                 if (fullText.isBlank() || isJunkOrCreditLine(fullText, lineStartTime)) return@let null
 
                 LyricLine(
@@ -549,7 +600,7 @@ object LyricParser {
                     val wordTextStart = currMatch.range.last + 1
                     val wordTextEnd = if (i + 1 < wordMatches.size) wordMatches[i + 1].range.first else cleanedContent.length
                     val rawWordText = cleanedContent.substring(wordTextStart, wordTextEnd).trim()
-                    val cleanWordText = tagStripRegex.replace(rawWordText, "").trim()
+                    val cleanWordText = sanitizeLyricText(tagStripRegex.replace(rawWordText, "").trim())
 
                     val wordDuration = if (i + 1 < wordMatches.size) {
                         val nextMatch = wordMatches[i + 1]
@@ -569,13 +620,13 @@ object LyricParser {
                     }
                 }
 
-                val fullText = cleanBracketVocals(
+                val fullText = sanitizeLyricText(cleanBracketVocals(
                     if (wordsList.isNotEmpty()) {
                         wordsList.joinToString(" ") { it.text }
                     } else {
                         tagStripRegex.replace(cleanedContent, "").trim()
                     }
-                )
+                ))
 
                 if (fullText.isEmpty() || isJunkOrCreditLine(fullText, timeMs)) {
                     null
@@ -596,7 +647,7 @@ object LyricParser {
                 }
             } else {
                 // \u666e\u901a LRC \u884c：\u4e25\u683c\u5254\u9664\u6240\u6709\u591a\u4f59\u6807\u7b7e and \u65f6\u95f4\u6233，\u907f\u514d\u6cc4\u6f0f\u5230 UI
-                val cleanText = cleanBracketVocals(tagStripRegex.replace(cleanedContent, "").trim())
+                val cleanText = sanitizeLyricText(cleanBracketVocals(tagStripRegex.replace(cleanedContent, "").trim()))
                 if (cleanText.isEmpty()) {
                     LyricLine(timeMs = timeMs, text = GAP_INDICATOR_TEXT, isGap = true)
                 } else if (isJunkOrCreditLine(cleanText, timeMs)) {
@@ -615,7 +666,7 @@ object LyricParser {
      */
     fun parsePlainLyrics(plainText: String): List<LyricLine> {
         return plainText.lines()
-            .map { tagStripRegex.replace(it, "").trim() }
+            .map { sanitizeLyricText(tagStripRegex.replace(it, "").trim()) }
             .filter { it.isNotEmpty() && !isJunkOrCreditLine(it, 0L) }
             .mapIndexed { index, lineText ->
                 LyricLine(

@@ -19,9 +19,15 @@ fun rememberFullPlayerColors(palette: PlayerBackdropPalette): PlayerBackdropPale
         animationSpec = tween(800),
         label = "bg_base"
     )
+    val animatedBottom by animateColorAsState(
+        targetValue = palette.bottomColor,
+        animationSpec = tween(800),
+        label = "bg_bottom"
+    )
     val vividBase = remember(animatedBase) { animatedBase.saturateIfChromatic(0.8f).lighten(1.0f) }
     return PlayerBackdropPalette(
         base = animatedBase,
-        textHighlight = lerp(start = vividBase, stop = Color.White, fraction = 0.5f)
+        textHighlight = lerp(start = vividBase, stop = Color.White, fraction = 0.5f),
+        bottomColor = animatedBottom
     )
 }

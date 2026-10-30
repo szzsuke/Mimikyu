@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Mimikyu</string>
+    <string name="app_name">MiMikyu</string>
 
     <string name="app_error_network">Network connection failed. Please check your network and try again.</string>
     <string name="app_error_risk_control">Network busy, please try again later.</string>

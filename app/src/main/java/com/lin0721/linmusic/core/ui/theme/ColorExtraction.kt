@@ -27,6 +27,7 @@ private const val TAG = "ColorExtraction"
 data class PlayerBackdropPalette(
     val base: Color,
     val textHighlight: Color,
+    val bottomColor: Color = base,
 )
 
 // candidate swatch ，/，。
@@ -38,6 +39,7 @@ private const val MEANINGFUL_CHROMA = 0.03f
 val FallbackBackdropPalette = PlayerBackdropPalette(
     base = FallbackBase,
     textHighlight = lerp(FallbackBase, Color.White, 0.85f),
+    bottomColor = FallbackBase,
 )
 
 // node-vibrant ：64 、quality=5
@@ -83,14 +85,53 @@ fun extractBackdropPalette(drawable: android.graphics.drawable.Drawable): Player
     }
 }
 
+fun extractBottomColorFromBitmap(bitmap: Bitmap): Color {
+    return try {
+        val safeBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
+            bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
+        } else {
+            bitmap
+        }
+        val width = safeBitmap.width
+        val height = safeBitmap.height
+        if (width <= 0 || height <= 0) return FallbackBase
+
+        val startY = (height * 0.95f).toInt().coerceIn(0, height - 1)
+        val sampleHeight = (height - startY).coerceAtLeast(1)
+        val pixels = IntArray(width * sampleHeight)
+        safeBitmap.getPixels(pixels, 0, width, 0, startY, width, sampleHeight)
+
+        var totalR = 0L
+        var totalG = 0L
+        var totalB = 0L
+        val count = pixels.size.toLong().coerceAtLeast(1L)
+
+        for (pixel in pixels) {
+            totalR += (pixel shr 16) and 0xFF
+            totalG += (pixel shr 8) and 0xFF
+            totalB += pixel and 0xFF
+        }
+
+        val avgR = (totalR / count).toInt().coerceIn(0, 255)
+        val avgG = (totalG / count).toInt().coerceIn(0, 255)
+        val avgB = (totalB / count).toInt().coerceIn(0, 255)
+
+        Color(avgR, avgG, avgB)
+    } catch (e: Exception) {
+        AppLogger.d(TAG, "Failed to extract bottom color from bitmap", e)
+        FallbackBase
+    }
+}
+
 fun extractBackdropPaletteFromBitmapSync(bitmap: Bitmap): PlayerBackdropPalette {
     return try {
+        val bottomColor = extractBottomColorFromBitmap(bitmap)
         val scaled = scaleDownByQuality(bitmap, VIBRANT_QUALITY)
         val pixels = IntArray(scaled.width * scaled.height)
         scaled.getPixels(pixels, 0, scaled.width, 0, 0, scaled.width, scaled.height)
 
         val quantized = medianCutQuantize(pixels, VIBRANT_COLOR_COUNT, ::defaultVibrantFilter)
-        if (quantized.isEmpty()) return FallbackBackdropPalette
+        if (quantized.isEmpty()) return FallbackBackdropPalette.copy(bottomColor = bottomColor)
 
         // No chroma signal
         if (isGrayscaleSwatches(quantized)) {
@@ -98,6 +139,7 @@ fun extractBackdropPaletteFromBitmapSync(bitmap: Bitmap): PlayerBackdropPalette 
             return PlayerBackdropPalette(
                 base = base,
                 textHighlight = lerp(base, Color.White, 0.85f),
+                bottomColor = bottomColor,
             )
         }
 
@@ -105,6 +147,7 @@ fun extractBackdropPaletteFromBitmapSync(bitmap: Bitmap): PlayerBackdropPalette 
         PlayerBackdropPalette(
             base = base,
             textHighlight = lerp(base, Color.White, 0.85f),
+            bottomColor = bottomColor,
         )
     } catch (e: Exception) {
         AppLogger.d(TAG, "Color extraction failed, using default dark palette", e)
@@ -140,39 +183,40 @@ internal const val NEUTRAL_BASE_CHROMA = 0.04f
 // and saturation to 0.22-0.48 so the background matches Spotify's rich artwork glow without washing out.
 internal fun pickBaseColor(swatches: List<VibrantSwatch>): Color {
     val nonPureSwatches = swatches.filter {
-        it.population > 0 && it.hsl[2] in 0.06f..0.92f
+        it.population > 0 && it.hsl[2] in 0.04f..0.96f
     }
     if (nonPureSwatches.isEmpty()) return FallbackBase
 
-    val totalPop = nonPureSwatches.sumOf { it.population.toLong() }.toFloat().coerceAtLeast(1f)
-    val maxPop = nonPureSwatches.maxOf { it.population }.toFloat().coerceAtLeast(1f)
+    // 1. Check if there are chromatic swatches (actual color) vs pure neutral
+    val chromatic = nonPureSwatches.filter { it.chroma >= 0.05f }
 
-    // Score swatches favoring large atmospheric regions while maintaining moderate chroma:
-    val scored = nonPureSwatches.map { swatch ->
-        val popRatio = swatch.population / maxPop
-        val lightnessDiff = abs(swatch.hsl[2] - 0.36f)
-        val lightnessScore = (1f - lightnessDiff * 1.8f).coerceIn(0f, 1f)
-        val chromaScore = (swatch.chroma.coerceIn(0f, 0.5f) / 0.5f)
-        // High population weight ensures background tones (e.g. MJ Thriller teal glow, JVKE olive) win over tiny text accents
-        val score = popRatio * 0.50f + chromaScore * 0.30f + lightnessScore * 0.20f
-        swatch to score
-    }
-
-    val atmosphericCandidates = scored.filter { it.first.chroma >= 0.035f }
-    val chosen = if (atmosphericCandidates.isNotEmpty()) {
-        atmosphericCandidates.maxBy { it.second }.first
+    val chosen: VibrantSwatch = if (chromatic.isNotEmpty()) {
+        // Find the dominant color in the artwork.
+        // Population is the most important factor: what color actually covers the album!
+        // We give a slight boost to chromatic presence so rich album tones win over neutral backgrounds if both exist,
+        // but population dominates (75%) so tiny accents never hijack the backdrop.
+        val maxPop = chromatic.maxOf { it.population }.toFloat()
+        chromatic.maxBy { swatch ->
+            val popScore = swatch.population / maxPop
+            val chromaScore = (swatch.chroma.coerceIn(0f, 0.4f) / 0.4f)
+            popScore * 0.75f + chromaScore * 0.25f
+        }
     } else {
-        scored.maxBy { it.second }.first
+        // For black/white/monochrome covers, pick the largest population non-pure swatch
+        nonPureSwatches.maxBy { it.population }
     }
 
-    // Spotify targets mid-tones: 0.30 - 0.38 lightness at the top of the backdrop
-    val targetL = chosen.hsl[2].coerceIn(0.30f, 0.38f)
-    val targetS = if (chosen.chroma >= 0.035f) {
-        chosen.hsl[1].coerceIn(0.22f, 0.48f)
+    // 2. Keep the EXACT hue and natural saturation of the album cover!
+    val h = chosen.hsl[0]
+    val s = if (chosen.chroma >= 0.05f) {
+        chosen.hsl[1].coerceIn(0.20f, 0.75f)
     } else {
-        chosen.hsl[1].coerceIn(0.10f, 0.25f)
+        chosen.hsl[1].coerceIn(0.02f, 0.20f)
     }
-    val (r, g, b) = hslToRgb(chosen.hsl[0], targetS, targetL)
+    // Deep, atmospheric lightness matching Spotify player backdrop standards (0.18f - 0.34f)
+    val l = chosen.hsl[2].coerceIn(0.18f, 0.34f)
+
+    val (r, g, b) = hslToRgb(h, s, l)
     return Color(r, g, b)
 }
 

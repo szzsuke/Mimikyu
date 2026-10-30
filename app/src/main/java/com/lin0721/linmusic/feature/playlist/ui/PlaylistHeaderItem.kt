@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.shadow
 import com.lin0721.linmusic.core.ui.interaction.pressable
 import com.lin0721.linmusic.core.ui.theme.MimikyuPress
 import com.lin0721.linmusic.core.ui.components.CoverPlaceholder
+import com.lin0721.linmusic.core.ui.theme.SurfaceDark
 import com.lin0721.linmusic.core.ui.theme.TextGray
 import com.lin0721.linmusic.core.ui.theme.darken
 import com.lin0721.linmusic.core.ui.theme.extractBaseColorFromUrl
@@ -277,7 +278,7 @@ fun PlaylistHeaderItem(
                     .size(210.dp)
                     .shadow(elevation = 16.dp, shape = RoundedCornerShape(8.dp), spotColor = Color.Black)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF242424))
+                    .background(SurfaceDark)
             ) {
                 SubcomposeAsyncImage(
                     model              = coverRequest,

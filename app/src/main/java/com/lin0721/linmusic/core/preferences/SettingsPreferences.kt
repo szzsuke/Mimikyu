@@ -121,6 +121,14 @@ class SettingsPreferences(private val context: Context) {
         private val KEY_LYRICON_ENABLED = booleanPreferencesKey("lyricon_enabled")
         // Status Bar Lyrics (Android 16 ), default false
         private val KEY_FLUID_CLOUD_LYRIC_ENABLED = booleanPreferencesKey("fluid_cloud_lyric_enabled")
+        const val PLAYER_STYLE_MODERN = "modern"
+        const val PLAYER_STYLE_CLASSIC = "classic"
+        const val PLAYER_STYLE_NEW = "new"
+        private val KEY_PLAYER_STYLE = stringPreferencesKey("player_style")
+
+        // Animated album & track canvas motion artwork (Apple Music, Tidal, Community)
+        private val KEY_ANIMATED_COVER_ENABLED = booleanPreferencesKey("animated_cover_enabled")
+        private val KEY_CANVAS_OVER_CELLULAR = booleanPreferencesKey("canvas_over_cellular")
     }
 
     // Wi-Fi  Flow
@@ -628,5 +636,36 @@ class SettingsPreferences(private val context: Context) {
             prefs[longPreferencesKey("lyric_offset_$songId")] = offsetMs
         }
     }
+
+    val playerStyle: Flow<String> = context.settingsDataStore.data.map { prefs ->
+        PLAYER_STYLE_CLASSIC
+    }
+
+    suspend fun savePlayerStyle(style: String) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_PLAYER_STYLE] = style
+        }
+    }
+
+    val animatedCoverEnabled: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
+        prefs[KEY_ANIMATED_COVER_ENABLED] ?: true
+    }
+
+    suspend fun saveAnimatedCoverEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_ANIMATED_COVER_ENABLED] = enabled
+        }
+    }
+
+    val canvasOverCellular: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
+        prefs[KEY_CANVAS_OVER_CELLULAR] ?: false
+    }
+
+    suspend fun saveCanvasOverCellular(enabled: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_CANVAS_OVER_CELLULAR] = enabled
+        }
+    }
 }
+
 

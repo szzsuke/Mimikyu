@@ -28,6 +28,7 @@ fun MimikyuNavHost(
     onOpenSidebar: () -> Unit,
     onLoginScreenVisibilityChanged: (Boolean) -> Unit,
     onNavigateToLikedSongs: () -> Unit = {},
+    onNavigateToDownloadedSongs: () -> Unit = {},
     onNavigateToPlaylist: (id: Long, isAlbum: Boolean) -> Unit,
     onNavigateToArtist: (Long) -> Unit,
     onNavigateToMv: (Long, String) -> Unit,
@@ -87,6 +88,9 @@ fun MimikyuNavHost(
                     onSearchClick = onNavigateToSearch,
                     onOpenSidebar = onOpenSidebar,
                     onPlaylistCategoryClick = onNavigateToPlaylistCategory,
+                    onNavigateToRecentPlay = onNavigateToRecentPlay,
+                    onNavigateToLikedSongs = onNavigateToLikedSongs,
+                    onNavigateToDownloadedSongs = onNavigateToDownloadedSongs,
                     onLoginScreenVisibilityChanged = onLoginScreenVisibilityChanged
                 )
             }
@@ -118,9 +122,15 @@ fun MimikyuNavHost(
                     viewModel = homeViewModel
                 )
             }
+            is Screen.DownloadedSongs -> {
+                com.lin0721.linmusic.feature.download.ui.DownloadedSongsScreen(
+                    onBack = onBack
+                )
+            }
             is Screen.Library -> {
                 com.lin0721.linmusic.feature.library.ui.LibraryScreen(
                     onLikedSongsClick = onNavigateToLikedSongs,
+                    onDownloadedSongsClick = onNavigateToDownloadedSongs,
                     onPlaylistClick = { id -> onNavigateToPlaylist(id, false) },
                     onArtistClick = onNavigateToArtist,
                     onAlbumClick = { id -> onNavigateToPlaylist(id, true) },

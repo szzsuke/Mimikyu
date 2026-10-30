@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.res.painterResource
 import com.lin0721.linmusic.core.ui.theme.MimikyuIcons
+import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,7 +103,7 @@ internal fun SearchTopBar(
                     Icon(
                         painter = painterResource(MimikyuIcons.ArrowLeft),
                         contentDescription = "Back",
-                        tint = Color.White,
+                        tint = MimikyuSilver,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -184,7 +185,7 @@ private fun SearchField(
             Spacer(modifier = Modifier.width(10.dp))
             Text(
                 text = placeholderInfo?.title?.takeIf { it.isNotBlank() } ?: placeholder,
-                color = if (placeholderInfo != null) Color.White else hintColor,
+                color = if (placeholderInfo != null) MimikyuSilver else hintColor,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -198,7 +199,7 @@ private fun SearchField(
                 Icon(
                     painter = painterResource(MimikyuIcons.Mic),
                     contentDescription = "Song Identifier",
-                    tint = Color.White,
+                    tint = MimikyuSilver,
                     modifier = Modifier.size(20.dp)
                 )
             }

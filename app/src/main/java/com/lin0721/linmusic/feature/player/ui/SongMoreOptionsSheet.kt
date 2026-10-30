@@ -59,6 +59,7 @@ fun SongMoreOptionsSheet(
     onCollectClick: () -> Unit,
     onShareClick: () -> Unit,
     onDownloadClick: () -> Unit,
+
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -228,6 +229,19 @@ fun SongMoreOptionsSheet(
                     }
                 )
 
+                // Share
+                OptionRow(
+                    iconRes = MimikyuIcons.Share,
+                    text = "Share",
+                    onClick = {
+                        scope.launch {
+                            sheetState.hide()
+                            onDismiss()
+                            onShareClick()
+                        }
+                    }
+                )
+
                 // 9.
                 var showQualityDialog by remember { mutableStateOf(false) }
                 Row(
@@ -380,6 +394,8 @@ fun SongMoreOptionsSheet(
                         }
                     }
                 )
+
+
             }
         }
     }

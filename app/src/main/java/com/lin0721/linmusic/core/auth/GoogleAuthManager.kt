@@ -156,8 +156,8 @@ class GoogleAuthManager(
 
     
     suspend fun signInAsLocalUser(
-        name: String = "Nishkarsh Shrivastava",
-        email: String = "nishkarsh.24bcg10106@vitbhopal.ac.in"
+        name: String = "Guest",
+        email: String = "guest@mimikyu.app"
     ): UserProfile {
         val uid = (email.hashCode().toLong() and 0x7FFFFFFF).coerceAtLeast(100000L)
         val profile = UserProfile(
@@ -175,7 +175,7 @@ class GoogleAuthManager(
         }
         userPreferences.saveUserProfile(profile)
         userPreferences.saveCookies("google_auth_token=auth_$uid")
-        AppLogger.i(TAG, "Local Google user session activated for $name ($email)")
+        AppLogger.i(TAG, "Local user session activated for $name ($email)")
         return profile
     }
 

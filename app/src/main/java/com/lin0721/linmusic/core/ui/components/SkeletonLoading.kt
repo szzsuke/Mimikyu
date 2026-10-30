@@ -43,9 +43,11 @@ import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
+import com.lin0721.linmusic.core.ui.theme.SurfaceDark
 import com.lin0721.linmusic.core.ui.theme.SurfaceLight
+import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
 
-// ：surfaceVariant/surface ，
+// Shimmer background using Gray 200 (SurfaceDark) base
 @Composable
 fun Modifier.shimmerBackground(shape: Shape = RectangleShape): Modifier {
     val transition = rememberInfiniteTransition(label = "shimmer")
@@ -58,8 +60,8 @@ fun Modifier.shimmerBackground(shape: Shape = RectangleShape): Modifier {
         ),
         label = "shimmer_translate"
     )
-    val base = MaterialTheme.colorScheme.surfaceVariant
-    val highlight = MaterialTheme.colorScheme.surface
+    val base = SurfaceDark
+    val highlight = SurfaceLight
     val brush = Brush.linearGradient(
         colors = listOf(base, highlight, base),
         start = Offset(translateAnim, 0f),
@@ -68,20 +70,19 @@ fun Modifier.shimmerBackground(shape: Shape = RectangleShape): Modifier {
     return this.background(brush = brush, shape = shape)
 }
 
-// /Failed to load of ： + ，。
-// AntiFlickerCoverImage ， of  .clip()
+// Cover loading placeholder wireframe
 @Composable
 fun CoverPlaceholder(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(SurfaceLight),
+            .background(SurfaceDark),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             Icons.Rounded.MusicNote,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.3f),
+            tint = MimikyuSilver.copy(alpha = 0.35f),
             modifier = Modifier.fillMaxSize(0.34f)
         )
     }
@@ -100,27 +101,35 @@ fun AntiFlickerCoverImage(
     var isLoaded by remember(url) { mutableStateOf(false) }
     var isError by remember(url) { mutableStateOf(false) }
 
-    val isGoogleImage = url.contains("=w") || url.contains("=s")
-    val fastUrl = remember(url) {
-        if (isGoogleImage) url.replace(Regex("=w\\d+-h\\d+.*$"), "=w300-h300-l80-rj") else url
+    val cleanUrl = remember(url) {
+        if (url.isBlank()) ""
+        else url.replace(Regex("\\?param=\\d+y\\d+.*$"), "")
+            .replace(Regex("\\?param=[^&]*"), "")
+            .trim()
     }
-    val highUrl = remember(url) {
-        if (isGoogleImage) url.replace(Regex("=w\\d+-h\\d+.*$"), "=w800-h800-l90-rj") else url
+
+    val fastUrl = remember(cleanUrl) {
+        if (cleanUrl.isBlank()) ""
+        else com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(cleanUrl, 226)
+    }
+    val highUrl = remember(cleanUrl) {
+        if (cleanUrl.isBlank()) ""
+        else com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(cleanUrl, 1200)
     }
 
     Box(modifier = modifier) {
-        if (url.isEmpty() || (!isLoaded && isError)) {
+        if (cleanUrl.isEmpty() || (!isLoaded && isError)) {
             CoverPlaceholder()
         }
 
-        if (url.isNotEmpty()) {
-            // Progressive: bottom layer renders the fast 300x300 thumbnail (~18KB) instantly
-            if (fastUrl != highUrl) {
+        if (cleanUrl.isNotEmpty()) {
+            // Progressive: bottom layer renders the fast 226x226 thumbnail instantly from CDN cache
+            if (fastUrl != highUrl && fastUrl.isNotBlank()) {
                 AsyncImage(
                     model = remember(fastUrl) {
                         ImageRequest.Builder(context)
                             .data(fastUrl)
-                            .allowHardware(false)
+                            .crossfade(false)
                             .build()
                     },
                     contentDescription = null,
@@ -234,3 +243,91 @@ fun DiscoverySectionSkeleton() {
         }
     }
 }
+
+// Playlist screen loading wireframe with Gray 200 shimmer
+@Composable
+fun PlaylistScreenSkeleton() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(32.dp))
+        // Cover square wireframe
+        Spacer(
+            modifier = Modifier
+                .size(200.dp)
+                .shimmerBackground(RoundedCornerShape(12.dp))
+        )
+        Spacer(Modifier.height(24.dp))
+        // Title line
+        Spacer(
+            modifier = Modifier
+                .width(220.dp)
+                .height(24.dp)
+                .shimmerBackground(RoundedCornerShape(6.dp))
+        )
+        Spacer(Modifier.height(10.dp))
+        // Subtitle line
+        Spacer(
+            modifier = Modifier
+                .width(140.dp)
+                .height(16.dp)
+                .shimmerBackground(RoundedCornerShape(4.dp))
+        )
+        Spacer(Modifier.height(28.dp))
+        // Action buttons
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Spacer(
+                modifier = Modifier
+                    .width(130.dp)
+                    .height(44.dp)
+                    .shimmerBackground(RoundedCornerShape(22.dp))
+            )
+            Spacer(Modifier.width(16.dp))
+            Spacer(
+                modifier = Modifier
+                    .width(130.dp)
+                    .height(44.dp)
+                    .shimmerBackground(RoundedCornerShape(22.dp))
+            )
+        }
+        Spacer(Modifier.height(32.dp))
+        // Track rows
+        repeat(5) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Spacer(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .shimmerBackground(RoundedCornerShape(6.dp))
+                )
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth(0.65f)
+                            .height(15.dp)
+                            .shimmerBackground(RoundedCornerShape(4.dp))
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth(0.40f)
+                            .height(12.dp)
+                            .shimmerBackground(RoundedCornerShape(4.dp))
+                    )
+                }
+            }
+        }
+    }
+}
+

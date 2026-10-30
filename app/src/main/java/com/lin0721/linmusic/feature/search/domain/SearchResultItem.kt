@@ -13,6 +13,14 @@ sealed interface SearchResultItem {
     data class PlaylistItem(val playlist: PlaylistDetail) : SearchResultItem
 }
 
+val SearchResultItem.stableKey: String
+    get() = when (this) {
+        is SearchResultItem.SongItem -> "song_${track.id}"
+        is SearchResultItem.AlbumItem -> "album_${album.id}"
+        is SearchResultItem.ArtistItem -> "artist_${artist.id}"
+        is SearchResultItem.PlaylistItem -> "playlist_${playlist.id}"
+    }
+
 // SearchType  of Search
 data class SearchPageResult(
     val items: List<SearchResultItem>,

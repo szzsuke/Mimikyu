@@ -215,7 +215,13 @@ class InnerTube {
         query: String? = null,
         params: String? = null,
         continuation: String? = null,
-    ) = innerTubeX.search(client, query, params, continuation)
+    ) = innerTubeX.search(
+        client = client,
+        query = query,
+        params = params?.takeIf { it.isNotBlank() },
+        continuation = continuation,
+        setLogin = false
+    )
 
     suspend fun player(
         client: YouTubeClient,

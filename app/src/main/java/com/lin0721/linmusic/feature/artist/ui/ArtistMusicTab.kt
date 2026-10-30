@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import com.lin0721.linmusic.core.ui.theme.MimikyuIcons
+import com.lin0721.linmusic.core.ui.theme.MimikyuYellow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.CircularProgressIndicator
@@ -95,7 +96,7 @@ fun LazyListScope.artistMusicTab(
                         Icon(
                             painter = painterResource(if (isLiked) MimikyuIcons.HeartFilled else MimikyuIcons.Heart),
                             contentDescription = "Like song",
-                            tint = if (isLiked) Color(0xFFFF007F) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (isLiked) MimikyuYellow else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp)
                         )
                     }

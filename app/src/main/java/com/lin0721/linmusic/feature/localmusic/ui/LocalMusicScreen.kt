@@ -15,8 +15,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -83,6 +85,7 @@ import com.lin0721.linmusic.core.model.Album
 import com.lin0721.linmusic.core.model.Artist
 import com.lin0721.linmusic.core.model.Track
 import com.lin0721.linmusic.core.player.innertube.YouTubeIdRegistry
+import com.lin0721.linmusic.core.ui.components.AdaptiveContentWidth
 import com.lin0721.linmusic.core.ui.components.EmptyState
 import com.lin0721.linmusic.core.ui.components.ErrorState
 import com.lin0721.linmusic.core.ui.components.LoginBottomSheet
@@ -99,7 +102,9 @@ import com.lin0721.linmusic.core.ui.components.WebViewLoginScreen
 import com.lin0721.linmusic.core.ui.interaction.pressable
 import com.lin0721.linmusic.core.ui.theme.BackgroundDark
 import com.lin0721.linmusic.core.ui.theme.BottomSheetShape
+import com.lin0721.linmusic.core.ui.theme.FilterPillInactive
 import com.lin0721.linmusic.core.ui.theme.MimikyuPress
+import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
 import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
 import com.lin0721.linmusic.core.ui.theme.PillRadius
 import com.lin0721.linmusic.core.ui.theme.ScreenSlideDurationMs
@@ -115,6 +120,7 @@ private const val SKELETON_ROW_COUNT = 8
 @Composable
 fun LocalMusicScreen(
     viewModel: LocalMusicViewModel = koinViewModel(),
+    showTopBar: Boolean = true,
     onBack: () -> Unit,
     onArtistClick: (Long) -> Unit = {},
     onAlbumClick: (Long) -> Unit = {},
@@ -171,68 +177,66 @@ fun LocalMusicScreen(
         BackHandler { viewModel.handleBackFromGroupDetail() }
     }
 
-    SecondaryScreenScaffold(
-        title = "Local Music",
-        onBack = onBack,
-        actions = {
-            if (state is LocalMusicUiState.Success && state.isSelectionMode) {
-                MimikyuIconButton(onClick = {
-                    if (state.selectedUris.isEmpty()) {
-                        viewModel.toggleSelectionMode()
-                    } else {
-                        confirmDeleteSelected = true
-                    }
-                }) {
-                    if (state.selectedUris.isEmpty()) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Exit selection", tint = Color.White)
-                    } else {
-                        Icon(Icons.Rounded.Delete, contentDescription = "Delete selected", tint = MaterialTheme.colorScheme.error)
-                    }
+    val actionsContent: @Composable RowScope.() -> Unit = {
+        if (state is LocalMusicUiState.Success && state.isSelectionMode) {
+            MimikyuIconButton(onClick = {
+                if (state.selectedUris.isEmpty()) {
+                    viewModel.toggleSelectionMode()
+                } else {
+                    confirmDeleteSelected = true
                 }
-            } else {
-                MimikyuIconButton(onClick = { showImportSheet = true }) {
-                    Icon(Icons.Rounded.Add, contentDescription = "Import songs", tint = Color.White)
+            }) {
+                if (state.selectedUris.isEmpty()) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Exit selection", tint = MimikyuSilver)
+                } else {
+                    Icon(Icons.Rounded.Delete, contentDescription = "Delete selected", tint = MaterialTheme.colorScheme.error)
                 }
-                if (state is LocalMusicUiState.Success && state.tracks.isNotEmpty()) {
-                    MimikyuIconButton(onClick = { viewModel.toggleSearch() }) {
-                        Icon(
-                            if (state.isSearchActive) Icons.Rounded.Close else Icons.Rounded.Search,
-                            contentDescription = if (state.isSearchActive) "Close Search" else "Search",
-                            tint = Color.White
+            }
+        } else {
+            MimikyuIconButton(onClick = { showImportSheet = true }) {
+                Icon(Icons.Rounded.Add, contentDescription = "Import songs", tint = MimikyuSilver)
+            }
+            if (state is LocalMusicUiState.Success && state.tracks.isNotEmpty()) {
+                MimikyuIconButton(onClick = { viewModel.toggleSearch() }) {
+                    Icon(
+                        if (state.isSearchActive) Icons.Rounded.Close else Icons.Rounded.Search,
+                        contentDescription = if (state.isSearchActive) "Close Search" else "Search",
+                        tint = MimikyuSilver
+                    )
+                }
+                Box {
+                    MimikyuIconButton(onClick = { showOverflowMenu = true }) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = MimikyuSilver)
+                    }
+                    DropdownMenu(expanded = showOverflowMenu, onDismissRequest = { showOverflowMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Import Songs") },
+                            onClick = {
+                                showOverflowMenu = false
+                                showImportSheet = true
+                            }
                         )
-                    }
-                    Box {
-                        MimikyuIconButton(onClick = { showOverflowMenu = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = Color.White)
-                        }
-                        DropdownMenu(expanded = showOverflowMenu, onDismissRequest = { showOverflowMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Import Songs") },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    showImportSheet = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Select") },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    viewModel.toggleSelectionMode()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Rescan") },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    viewModel.load()
-                                }
-                            )
-                        }
+                        DropdownMenuItem(
+                            text = { Text("Select") },
+                            onClick = {
+                                showOverflowMenu = false
+                                viewModel.toggleSelectionMode()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Rescan") },
+                            onClick = {
+                                showOverflowMenu = false
+                                viewModel.load()
+                            }
+                        )
                     }
                 }
             }
         }
-    ) {
+    }
+
+    val mainContent: @Composable ColumnScope.() -> Unit = {
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (state) {
                 LocalMusicUiState.Loading -> {
@@ -412,6 +416,48 @@ fun LocalMusicScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    if (showTopBar) {
+        SecondaryScreenScaffold(
+            title = "Local Music",
+            onBack = onBack,
+            actions = actionsContent,
+            content = mainContent
+        )
+    } else {
+        AdaptiveContentWidth {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(BackgroundDark)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = MimikyuSpacing.md, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (state is LocalMusicUiState.Success && state.isSelectionMode) {
+                        Text(
+                            text = "${state.selectedUris.size} selected",
+                            color = MimikyuSilver,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        content = actionsContent
+                    )
+                }
+                mainContent()
             }
         }
     }
@@ -716,12 +762,12 @@ private fun LocalMusicGroupTabsRow(selected: LocalMusicGroupMode, onSelect: (Loc
                 modifier = Modifier
                     .pressable(MimikyuPress.Pill) { onSelect(mode) }
                     .clip(RoundedCornerShape(PillRadius))
-                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f))
+                    .background(if (isSelected) MaterialTheme.colorScheme.primary else FilterPillInactive)
                     .padding(horizontal = MimikyuSpacing.md, vertical = 7.dp)
             ) {
                 Text(
                     text = mode.label,
-                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isSelected) Color.Black else MimikyuSilver,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium
                 )

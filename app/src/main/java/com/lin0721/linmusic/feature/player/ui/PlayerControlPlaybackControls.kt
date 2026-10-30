@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,94 +50,92 @@ fun PlaybackControls(
     isRoaming: Boolean = false,
     onDisableRoaming: () -> Unit = {},
     isIntelligence: Boolean = false,
-    onDisableIntelligence: () -> Unit = {}
+    onDisableIntelligence: () -> Unit = {},
+    isModern: Boolean = false
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = MimikyuSpacing.lg)
-            .padding(top = MimikyuSpacing.xs),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        MimikyuIconButton(
-            onClick = {
-                if (isRoaming) {
-                    onDisableRoaming()
-                } else if (isIntelligence) {
-                    onDisableIntelligence()
-                } else {
-                    onToggleShuffle()
-                }
-            },
-            modifier = Modifier.offset(x = (-10).dp)
-        ) {
-            val shuffleActive = isRoaming || isIntelligence || playMode == PlayMode.SHUFFLE
-            Icon(
-                painter = painterResource(
-                    when {
-                        isRoaming || isIntelligence -> MimikyuIcons.ShuffleSmart
-                        else -> MimikyuIcons.Shuffle
-                    }
-                ),
-                contentDescription = "Shuffle",
-                tint = if (shuffleActive) Color(0xFFFF007F) else TextGray,
-                modifier = Modifier.size(26.dp)
-            )
-        }
+    val shuffleActive = isRoaming || isIntelligence || playMode == PlayMode.SHUFFLE
+    val repeatActive = playMode == PlayMode.SINGLE_LOOP || playMode == PlayMode.LIST_LOOP
 
+    val playInteraction = remember { MutableInteractionSource() }
+    val isPressed by playInteraction.collectIsPressedAsState()
+    val buttonAlpha = remember { Animatable(1f) }
+    var clickTrigger by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(isPressed) {
+        if (isPressed) {
+            buttonAlpha.animateTo(0.70f, tween(durationMillis = 80))
+        } else if (clickTrigger == 0) {
+            buttonAlpha.animateTo(1f, tween(durationMillis = 200, easing = FastOutSlowInEasing))
+        }
+    }
+
+    LaunchedEffect(clickTrigger) {
+        if (clickTrigger > 0) {
+            buttonAlpha.snapTo(0.70f)
+            buttonAlpha.animateTo(1f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
+        }
+    }
+
+    var showSpinner by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoading) {
+        if (isLoading) {
+            kotlinx.coroutines.delay(350L)
+            showSpinner = true
+        } else {
+            showSpinner = false
+        }
+    }
+
+    if (isModern) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(28.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = MimikyuSpacing.lg)
+                .padding(top = MimikyuSpacing.xs),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            MimikyuIconButton(
+                onClick = {
+                    if (isRoaming) {
+                        onDisableRoaming()
+                    } else if (isIntelligence) {
+                        onDisableIntelligence()
+                    } else {
+                        onToggleShuffle()
+                    }
+                }
+            ) {
+                Icon(
+                    painter = painterResource(
+                        when {
+                            isRoaming || isIntelligence -> MimikyuIcons.ShuffleSmart
+                            else -> MimikyuIcons.Shuffle
+                        }
+                    ),
+                    contentDescription = "Shuffle",
+                    tint = if (shuffleActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.70f),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
             MimikyuIconButton(onClick = onPlayPrevious, style = MimikyuPress.Transport) {
                 Icon(
                     painter = painterResource(MimikyuIcons.SkipPrevious),
                     contentDescription = "Previous",
                     tint = Color.White,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
-            val playInteraction = remember { MutableInteractionSource() }
-            val isPressed by playInteraction.collectIsPressedAsState()
-            val buttonAlpha = remember { Animatable(1f) }
-            var clickTrigger by remember { mutableIntStateOf(0) }
 
-            LaunchedEffect(isPressed) {
-                if (isPressed) {
-                    buttonAlpha.animateTo(0.70f, tween(durationMillis = 80))
-                } else if (clickTrigger == 0) {
-                    buttonAlpha.animateTo(1f, tween(durationMillis = 200, easing = FastOutSlowInEasing))
-                }
-            }
-
-            LaunchedEffect(clickTrigger) {
-                if (clickTrigger > 0) {
-                    buttonAlpha.snapTo(0.70f)
-                    buttonAlpha.animateTo(1f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
-                }
-            }
-
-            var showSpinner by remember { mutableStateOf(false) }
-            LaunchedEffect(isLoading) {
-                if (isLoading) {
-                    kotlinx.coroutines.delay(350L)
-                    showSpinner = true
-                } else {
-                    showSpinner = false
-                }
-            }
-
-            FloatingActionButton(
+            MimikyuIconButton(
                 onClick = {
                     clickTrigger++
                     onTogglePlay()
                 },
-                containerColor = Color.White,
-                shape = CircleShape,
-                interactionSource = playInteraction,
+                style = MimikyuPress.Transport,
                 modifier = Modifier
-                    .size(72.dp)
+                    .size(56.dp)
                     .graphicsLayer {
                         alpha = buttonAlpha.value
                     }
@@ -145,38 +144,139 @@ fun PlaybackControls(
                     androidx.compose.material3.CircularProgressIndicator(
                         modifier = Modifier.size(36.dp),
                         strokeWidth = 3.dp,
-                        color = Color.Black
+                        color = Color.White
                     )
                 } else {
                     Icon(
                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.Black,
+                        tint = Color.White,
                         modifier = Modifier.size(42.dp)
                     )
                 }
             }
+
             MimikyuIconButton(onClick = onPlayNext, style = MimikyuPress.Transport) {
                 Icon(
                     painter = painterResource(MimikyuIcons.SkipNext),
                     contentDescription = "Next",
                     tint = Color.White,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            MimikyuIconButton(
+                onClick = onToggleRepeat
+            ) {
+                Icon(
+                    painter = painterResource(
+                        if (playMode == PlayMode.SINGLE_LOOP) MimikyuIcons.RepeatOnce
+                        else MimikyuIcons.Repeat
+                    ),
+                    contentDescription = "Repeat",
+                    tint = if (repeatActive) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.70f),
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
-
-        MimikyuIconButton(
-            onClick = onToggleRepeat,
-            modifier = Modifier.offset(x = 10.dp)
+    } else {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = MimikyuSpacing.lg)
+                .padding(top = MimikyuSpacing.xs),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            val repeatActive = playMode == PlayMode.SINGLE_LOOP || playMode == PlayMode.LIST_LOOP
-            Icon(
-                painter = painterResource(if (playMode == PlayMode.SINGLE_LOOP) MimikyuIcons.RepeatOnce else MimikyuIcons.Repeat),
-                contentDescription = "Repeat",
-                tint = if (repeatActive) Color(0xFFFF007F) else TextGray,
-                modifier = Modifier.size(26.dp)
-            )
+            MimikyuIconButton(
+                onClick = {
+                    if (isRoaming) {
+                        onDisableRoaming()
+                    } else if (isIntelligence) {
+                        onDisableIntelligence()
+                    } else {
+                        onToggleShuffle()
+                    }
+                },
+                modifier = Modifier.offset(x = (-10).dp)
+            ) {
+                Icon(
+                    painter = painterResource(
+                        when {
+                            isRoaming || isIntelligence -> MimikyuIcons.ShuffleSmart
+                            else -> MimikyuIcons.Shuffle
+                        }
+                    ),
+                    contentDescription = "Shuffle",
+                    tint = if (shuffleActive) MaterialTheme.colorScheme.primary else TextGray,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(28.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MimikyuIconButton(onClick = onPlayPrevious, style = MimikyuPress.Transport) {
+                    Icon(
+                        painter = painterResource(MimikyuIcons.SkipPrevious),
+                        contentDescription = "Previous",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                FloatingActionButton(
+                    onClick = {
+                        clickTrigger++
+                        onTogglePlay()
+                    },
+                    containerColor = Color.White,
+                    shape = CircleShape,
+                    interactionSource = playInteraction,
+                    modifier = Modifier
+                        .size(72.dp)
+                        .graphicsLayer {
+                            alpha = buttonAlpha.value
+                        }
+                ) {
+                    if (showSpinner) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(36.dp),
+                            strokeWidth = 3.dp,
+                            color = Color.Black
+                        )
+                    } else {
+                        Icon(
+                            if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = Color.Black,
+                            modifier = Modifier.size(42.dp)
+                        )
+                    }
+                }
+
+                MimikyuIconButton(onClick = onPlayNext, style = MimikyuPress.Transport) {
+                    Icon(
+                        painter = painterResource(MimikyuIcons.SkipNext),
+                        contentDescription = "Next",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            MimikyuIconButton(
+                onClick = onToggleRepeat,
+                modifier = Modifier.offset(x = 10.dp)
+            ) {
+                Icon(
+                    painter = painterResource(if (playMode == PlayMode.SINGLE_LOOP) MimikyuIcons.RepeatOnce else MimikyuIcons.Repeat),
+                    contentDescription = "Repeat",
+                    tint = if (repeatActive) MaterialTheme.colorScheme.primary else TextGray,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
         }
     }
 }

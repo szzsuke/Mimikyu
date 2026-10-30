@@ -41,9 +41,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
@@ -111,13 +114,13 @@ fun MiniPlayerCard(
     val targetStartColor = if (isPlayingState) {
         colorPalette.base.saturateIfChromatic(0.75f).darken(0.12f)
     } else {
-        Color(0xFF282A33)
+        SurfaceDark
     }
 
     val targetEndColor = if (isPlayingState) {
         colorPalette.base.darken(0.48f)
     } else {
-        Color(0xFF1E2026)
+        BackgroundDark
     }
 
     val animatedStartColor by animateColorAsState(
@@ -206,7 +209,7 @@ fun MiniPlayerCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(58.dp)
+            .height(52.dp)
             .shadow(
                 elevation = 8.dp,
                 shape = miniPlayerShape,
@@ -270,17 +273,19 @@ fun MiniPlayerCard(
                 ) {
                     val heartIcon = if (isLiked) MimikyuIcons.HeartFilled else MimikyuIcons.Heart
                     val heartIconTint = if (isLiked) {
-                        Color(0xFFFF007F)
+                        MimikyuYellow
                     } else if (isPlaying) {
-                        Color.White.copy(alpha = 0.90f)
+                        MimikyuSilver.copy(alpha = 0.90f)
                     } else {
-                        Color(0xFFB3B3B3)
+                        MimikyuLightGray
                     }
                     Icon(
                         painter = painterResource(heartIcon),
                         contentDescription = if (isLiked) "Unlike" else "Like",
                         tint = heartIconTint,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier
+                            .size(24.dp)
+                            .offset(y = (-1.5).dp)
                     )
                 }
 
@@ -294,10 +299,10 @@ fun MiniPlayerCard(
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp,
-                            color = Color.White
+                            color = MimikyuSilver
                         )
                     } else {
-                        val playIconTint = if (isPlaying) Color.White else Color(0xFFB3B3B3)
+                        val playIconTint = if (isPlaying) MimikyuSilver else MimikyuLightGray
                         Icon(
                             painter = painterResource(if (isPlaying) MimikyuIcons.Pause else MimikyuIcons.Play),
                             contentDescription = "Play/Pause",
@@ -315,6 +320,7 @@ fun MiniPlayerCard(
             duration = duration,
             isPlaying = isPlaying,
             isConnectActive = connectedDevice != null,
+            activeColorOverride = if (isPlayingState) colorPalette.base.toPastelProgressColor() else null,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
@@ -354,7 +360,7 @@ private fun MiniPlayerSlidingContent(
                         key = item.songId.toString(),
                         title = item.title,
                         artist = item.artist,
-                        coverUrl = rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri),
+                        coverUrl = rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri, item.title, item.artist),
                         connectedDevice = null,
                         translationXProvider = { state.offsetX - state.containerWidthPx }
                     )
@@ -376,7 +382,7 @@ private fun MiniPlayerSlidingContent(
                         key = if (item.songId == previousQueueItem?.songId) "${item.songId}-next" else item.songId.toString(),
                         title = item.title,
                         artist = item.artist,
-                        coverUrl = rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri),
+                        coverUrl = rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri, item.title, item.artist),
                         connectedDevice = null,
                         translationXProvider = { state.offsetX + state.containerWidthPx }
                     )
@@ -418,7 +424,7 @@ private fun MiniPlayerContentRow(
             url = coverUrl,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(42.dp)
+                .size(38.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .graphicsLayer {
                     alpha = if (isPlaying) 1f else 0.85f
@@ -429,22 +435,56 @@ private fun MiniPlayerContentRow(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.Center
         ) {
-            val titleLine = if (connectedDevice != null && artist.isNotBlank()) "$title · $artist" else title
-            Text(
-                text = titleLine,
-                color = if (isPlaying) Color.White else Color.White.copy(alpha = 0.82f),
-                fontSize = 14.sp,
-                fontFamily = RobotoFontFamily,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
+            if (connectedDevice != null && artist.isNotBlank()) {
+                val titleAndArtist = buildAnnotatedString {
+                    withStyle(
+                        SpanStyle(
+                            color = if (isPlaying) MimikyuSilver else MimikyuSilver.copy(alpha = 0.82f),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    ) {
+                        append(title)
+                    }
+                    withStyle(
+                        SpanStyle(
+                            color = MimikyuLightGray,
+                            fontWeight = FontWeight.Normal
+                        )
+                    ) {
+                        append(" · $artist")
+                    }
+                }
+                Text(
+                    text = titleAndArtist,
+                    fontSize = 14.sp,
                     fontFamily = RobotoFontFamily,
-                    platformStyle = PlatformTextStyle(includeFontPadding = false),
-                    lineHeight = 17.sp
-                ),
-                modifier = Modifier.basicMarquee()
-            )
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        fontFamily = RobotoFontFamily,
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        lineHeight = 17.sp
+                    ),
+                    modifier = Modifier.basicMarquee()
+                )
+            } else {
+                Text(
+                    text = title,
+                    color = if (isPlaying) MimikyuSilver else MimikyuSilver.copy(alpha = 0.82f),
+                    fontSize = 14.sp,
+                    fontFamily = RobotoFontFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        fontFamily = RobotoFontFamily,
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        lineHeight = 17.sp
+                    ),
+                    modifier = Modifier.basicMarquee()
+                )
+            }
+
             if (connectedDevice != null) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -474,7 +514,7 @@ private fun MiniPlayerContentRow(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = artist,
-                    color = if (isPlaying) Color.White.copy(alpha = 0.70f) else Color(0xFF7E7E7E),
+                    color = MimikyuLightGray,
                     fontSize = 12.sp,
                     fontFamily = RobotoFontFamily,
                     fontWeight = FontWeight.Normal,
@@ -501,12 +541,17 @@ fun MiniPlayerProgress(
     duration: Long,
     isPlaying: Boolean = true,
     isConnectActive: Boolean = false,
+    activeColorOverride: Color? = null,
     modifier: Modifier = Modifier
 ) {
     val bottomCornerShape = RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
     val currentPosition = currentPositionProvider()
     val progress = if (duration > 0) (currentPosition.toFloat() / duration).coerceIn(0f, 1f) else 0f
-    val targetActiveColor = if (isConnectActive) OctoberRed else if (isPlaying) Color.White else Color(0xFF9E9E9E)
+    val targetActiveColor = when {
+        isConnectActive -> OctoberRed
+        isPlaying -> activeColorOverride ?: MimikyuPink
+        else -> Color(0xFF9E9E9E)
+    }
     val activeColor by animateColorAsState(
         targetValue = targetActiveColor,
         animationSpec = tween(400),
@@ -516,7 +561,7 @@ fun MiniPlayerProgress(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(6.dp),
+            .height(2.5.dp),
         contentAlignment = Alignment.BottomStart
     ) {
         // Track line
@@ -525,7 +570,7 @@ fun MiniPlayerProgress(
                 .fillMaxWidth()
                 .height(2.5.dp)
                 .clip(bottomCornerShape)
-                .background(Color.White.copy(alpha = 0.20f))
+                .background(MimikyuStoneWhite.copy(alpha = 0.40f))
         ) {
             Box(
                 modifier = Modifier
@@ -533,28 +578,6 @@ fun MiniPlayerProgress(
                     .fillMaxHeight()
                     .background(activeColor)
             )
-        }
-
-        // Circular thumb indicator at progress point matching screenshot
-        if (progress > 0.002f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 0.dp)
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxWidth(progress)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .offset(x = 3.dp, y = 1.dp)
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(activeColor)
-                    )
-                }
-            }
         }
     }
 }
@@ -610,9 +633,9 @@ fun MimikyuNavigationBar(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color.Black.copy(alpha = 0.35f),
-                        Color.Black.copy(alpha = 0.75f),
-                        Color.Black.copy(alpha = 0.94f)
+                        Color.Black.copy(alpha = 0.25f),
+                        Color.Black.copy(alpha = 0.55f),
+                        Color.Black.copy(alpha = 0.75f)
                     )
                 )
             )
@@ -622,7 +645,7 @@ fun MimikyuNavigationBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
-                        if (expanded) Modifier.fillMaxHeight() else Modifier.height(56.dp)
+                        if (expanded) Modifier.fillMaxHeight() else Modifier.height(50.dp)
                     ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -664,22 +687,22 @@ fun MimikyuNavigationBar(
                             Icon(
                                 painter = painterResource(if (isSelected) tab.activeIconRes else tab.inactiveIconRes),
                                 contentDescription = tab.label,
-                                tint = if (isSelected) Color.White else Color(0xFFB3B3B3),
-                                modifier = Modifier.size(24.dp)
+                                tint = if (isSelected) MimikyuSilver else MimikyuLightGray,
+                                modifier = Modifier.size(22.dp)
                             )
                         } else {
                             Icon(
                                 painter = painterResource(if (isCreateMenuOpen) MimikyuIcons.Close else MimikyuIcons.Plus),
                                 contentDescription = tab.label,
-                                tint = if (isCreateMenuOpen) Color.White else Color(0xFFB3B3B3),
-                                modifier = Modifier.size(28.dp)
+                                tint = if (isCreateMenuOpen) MimikyuSilver else MimikyuLightGray,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(3.dp))
                         Text(
                             text = tab.label,
-                            color = if (isSelected) Color.White else Color(0xFFB3B3B3),
-                            fontSize = 11.sp,
+                            color = if (isSelected) MimikyuSilver else MimikyuLightGray,
+                            fontSize = 10.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             maxLines = 1,
                             style = TextStyle(

@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -47,15 +51,43 @@ fun ArtistNameSection(artist: ArtistDetailInfo, progress: Float, tintColor: Colo
                 .padding(horizontal = MimikyuSpacing.md)
                 .padding(bottom = MimikyuSpacing.md, top = MimikyuSpacing.lg)
         ) {
-            Text(
-                text = artist.name,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 44.sp,
-                fontWeight = FontWeight.Black,
-                lineHeight = 48.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (!artist.logoUrl.isNullOrBlank()) {
+                var logoFailed by androidx.compose.runtime.remember(artist.logoUrl) {
+                    androidx.compose.runtime.mutableStateOf(false)
+                }
+                if (!logoFailed) {
+                    coil.compose.AsyncImage(
+                        model = artist.logoUrl,
+                        contentDescription = artist.name,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        alignment = Alignment.BottomStart,
+                        onError = { logoFailed = true },
+                        modifier = Modifier
+                            .heightIn(max = 72.dp)
+                            .fillMaxWidth(0.75f)
+                    )
+                } else {
+                    Text(
+                        text = artist.name,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 44.sp,
+                        fontWeight = FontWeight.Black,
+                        lineHeight = 48.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
+                Text(
+                    text = artist.name,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 48.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             Spacer(Modifier.height(6.dp))
 

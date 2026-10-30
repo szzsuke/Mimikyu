@@ -1,17 +1,16 @@
 package com.lin0721.linmusic.core.metadata
 
 import coil.intercept.Interceptor
+import coil.request.ErrorResult
 import coil.request.ImageResult
-import com.lin0721.linmusic.core.player.innertube.YouTubeIdRegistry
 
 /**
  * Global Coil Interceptor that intercepts all image load requests across the application.
  *
  * Ensures that:
  * 1. Low-resolution YouTube Music thumbnails (e.g. =w120-h120, =s60-c) are upscaled to 1200x1200.
- * 2. YouTube video thumbnails (ytimg.com) are upscaled to maxresdefault.jpg.
+ * 2. YouTube video thumbnails (ytimg.com) are upscaled to maxresdefault.jpg with graceful fallback to sddefault.jpg.
  * 3. Incompatible "?param=" suffixes appended to Google/YouTube URLs are stripped and upscaled.
- * 4. NetEase thumbnails are requested at crisp 500x500 resolution.
  */
 class ThumbnailUpscaleInterceptor : Interceptor {
 
@@ -25,7 +24,18 @@ class ThumbnailUpscaleInterceptor : Interceptor {
                 val newRequest = request.newBuilder()
                     .data(resolvedUrl)
                     .build()
-                return chain.proceed(newRequest)
+                val result = chain.proceed(newRequest)
+                if (result is ErrorResult && resolvedUrl.contains("/maxresdefault.jpg")) {
+                    val fallbackUrl = resolvedUrl.replace("/maxresdefault.jpg", "/sddefault.jpg")
+                    val fallbackRequest = request.newBuilder()
+                        .data(fallbackUrl)
+                        .build()
+                    val fallbackResult = chain.proceed(fallbackRequest)
+                    if (fallbackResult !is ErrorResult) return fallbackResult
+                    val hqFallback = resolvedUrl.replace("/maxresdefault.jpg", "/hqdefault.jpg")
+                    return chain.proceed(request.newBuilder().data(hqFallback).build())
+                }
+                return result
             }
         }
 
@@ -35,29 +45,10 @@ class ThumbnailUpscaleInterceptor : Interceptor {
     companion object {
         fun resolveUrl(url: String): String {
             if (url.isBlank()) return url
-            if (url.startsWith("android.resource://")) {
+            if (url.startsWith("android.resource://") || url.startsWith("content://") || url.startsWith("file://")) {
                 return if (url.contains("?")) url.substringBefore("?") else url
             }
-
-            // 1. YouTube / Google UserContent
-            if (url.contains("googleusercontent.com") || url.contains("ggpht.com")) {
-                val clean = if (url.contains("?param=")) url.substringBefore("?param=") else url
-                return YouTubeThumbnailUpscaler.upscale(clean) ?: clean
-            }
-
-            // 2. YouTube video thumbnail (i.ytimg.com)
-            if (url.contains("i.ytimg.com") || url.contains("img.youtube.com")) {
-                val clean = if (url.contains("?param=")) url.substringBefore("?param=") else url
-                return YouTubeThumbnailUpscaler.upscale(clean) ?: clean
-            }
-
-            // 3. NetEase CDN - upgrade tiny thumbnails to 500x500
-            if (url.contains("163.com") && url.contains("?param=")) {
-                val base = url.substringBefore("?param=")
-                return "$base?param=500y500"
-            }
-
-            return url
+            return SongArtworkEngine.optimizeArtworkUrl(url, SongArtworkEngine.PLAYER_ART_PX)
         }
     }
 }

@@ -104,7 +104,7 @@ jobs:
       # 四项签名 secret 缺任一项时 build.gradle.kts 会静默退回 debug 签名
       - name: 校验正式签名生效
         run: |
-          APK=app/build/outputs/apk/release/Melodia-v${{ steps.version.outputs.name }}-release.apk
+          APK=app/build/outputs/apk/release/Mimikyu-v${{ steps.version.outputs.name }}-release.apk
           APKSIGNER=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -maxdepth 1 -type d | sort -V | tail -1)/apksigner
           DN=$("$APKSIGNER" verify --print-certs "$APK" | grep -m1 'certificate DN')
           echo "$DN"

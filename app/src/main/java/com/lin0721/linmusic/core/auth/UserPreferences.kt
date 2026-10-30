@@ -55,6 +55,9 @@ class UserPreferences(private val context: Context) {
         private val KEY_RECENT_RECORDS = stringPreferencesKey("recent_records_json")
         private val KEY_HAS_SEEN_ONBOARDING = booleanPreferencesKey("has_seen_onboarding")
         private val KEY_IS_LOGGED_IN = booleanPreferencesKey("is_authenticated_user")
+        private val KEY_YTM_VISITOR_DATA = stringPreferencesKey("ytm_visitor_data")
+        private val KEY_YTM_DATASYNC_ID = stringPreferencesKey("ytm_datasync_id")
+        private val KEY_YTM_AUTH_USER = stringPreferencesKey("ytm_auth_user")
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -163,6 +166,24 @@ class UserPreferences(private val context: Context) {
         prefs[KEY_RECENT_RECORDS]?.let { jsonStr ->
             runCatching { json.decodeFromString<List<RecentPlayRecord>>(jsonStr) }.getOrDefault(emptyList())
         } ?: emptyList()
+    }
+
+    val ytmVisitorData: Flow<String?> = context.userDataStore.data.map { prefs -> prefs[KEY_YTM_VISITOR_DATA] }
+    val ytmDataSyncId: Flow<String?> = context.userDataStore.data.map { prefs -> prefs[KEY_YTM_DATASYNC_ID] }
+    val ytmAuthUser: Flow<String?> = context.userDataStore.data.map { prefs -> prefs[KEY_YTM_AUTH_USER] }
+
+    suspend fun saveYouTubeSession(visitorData: String?, dataSyncId: String?, authUser: String?) {
+        context.userDataStore.edit { prefs ->
+            if (visitorData != null) prefs[KEY_YTM_VISITOR_DATA] = visitorData else prefs.remove(KEY_YTM_VISITOR_DATA)
+            if (dataSyncId != null) prefs[KEY_YTM_DATASYNC_ID] = dataSyncId else prefs.remove(KEY_YTM_DATASYNC_ID)
+            if (authUser != null) prefs[KEY_YTM_AUTH_USER] = authUser else prefs.remove(KEY_YTM_AUTH_USER)
+        }
+    }
+
+    suspend fun saveRecentRecords(records: List<RecentPlayRecord>) {
+        context.userDataStore.edit { prefs ->
+            prefs[KEY_RECENT_RECORDS] = json.encodeToString(records.take(100))
+        }
     }
 
     // Record Track Played

@@ -46,7 +46,7 @@ val LocalBottomOverlayInset = staticCompositionLocalOf { 0.dp }
 
 // Expanded  and  of ，（ 10dp×2 +  52dp +  2dp），
 // Play of 。 IntrinsicSize： of
-internal val ExpandedBottomBarHeight = 74.dp
+internal val ExpandedBottomBarHeight = 65.dp
 
 // Tab  of
 private val ExpandedNavigationBarMaxWidth = 560.dp
@@ -131,9 +131,9 @@ fun MimikyuBottomOverlay(
                 .background(
                     Brush.verticalGradient(
                         0.0f to Color.Transparent,
-                        0.22f to Color.Black.copy(alpha = 0.35f),
-                        0.55f to Color.Black.copy(alpha = 0.75f),
-                        1.0f to Color.Black.copy(alpha = 0.95f)
+                        0.22f to Color.Black.copy(alpha = 0.25f),
+                        0.55f to Color.Black.copy(alpha = 0.55f),
+                        1.0f to Color.Black.copy(alpha = 0.75f)
                     )
                 )
                 .onSizeChanged {

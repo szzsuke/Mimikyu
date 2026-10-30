@@ -11,8 +11,8 @@ import androidx.compose.ui.graphics.Color
 import com.lin0721.linmusic.core.ui.interaction.MimikyuPressIndication
 
 private val DarkColorScheme = darkColorScheme(
-    primary = MimikyuMagenta,
-    onPrimary = Color.White,
+    primary = MimikyuYellow,
+    onPrimary = MimikyuCharcoal,
     background = BackgroundDark,
     onBackground = MimikyuWhite,
     surface = MimikyuCharcoal,
@@ -20,7 +20,7 @@ private val DarkColorScheme = darkColorScheme(
     surfaceVariant = SurfaceLight,
     onSurfaceVariant = TextGray,
     error = Color(0xFFE91429),
-    onError = Color.White
+    onError = MimikyuSilver
 )
 
 // Mimikyu  of  Material3

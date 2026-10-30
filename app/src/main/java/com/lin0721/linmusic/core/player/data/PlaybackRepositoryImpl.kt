@@ -1,6 +1,7 @@
 package com.lin0721.linmusic.core.player.data
 import com.lin0721.linmusic.core.model.Artist
 import com.lin0721.linmusic.core.model.Album
+import com.lin0721.linmusic.core.importer.TrackMatcher
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -42,7 +43,8 @@ class PlaybackRepositoryImpl(
     private val qobuzService: QobuzService,
     private val externalLyricsService: ExternalLyricsService,
     private val userPreferences: UserPreferences? = null,
-    private val playbackResolver: com.lin0721.linmusic.core.player.resolver.PlaybackResolver? = null
+    private val playbackResolver: com.lin0721.linmusic.core.player.resolver.PlaybackResolver? = null,
+    private val auroraApiClient: com.lin0721.linmusic.core.aurora.AuroraApiClient? = null
 ) : PlaybackRepository {
 
     init {
@@ -66,7 +68,7 @@ class PlaybackRepositoryImpl(
                     artist = artist,
                     durationMs = (YouTubeIdRegistry.getDurationSec(songId) * 1000).toLong()
                 )
-                val firstSong = com.lin0721.linmusic.core.laya.LayaDecisionEngine.selectBestSong(parsed, candidates).selected
+                val firstSong = TrackMatcher.selectBestSong(parsed, candidates).selected
                 if (firstSong != null) {
                     videoId = firstSong.id
                     val cleanT = com.lin0721.linmusic.core.metadata.cleanMetadataText(firstSong.title)
@@ -235,7 +237,67 @@ class PlaybackRepositoryImpl(
     }.getOrNull()
 
     override fun getSimilarSongs(songId: Long): Flow<Result<List<Track>>> = flow {
-        // Use YouTube Music's related/next endpoint for similar songs
+        // ── PRIMARY: Try native Catalog Similar Tracks (Radio Algorithm) ──
+        if (auroraApiClient != null) {
+            try {
+                val title = YouTubeIdRegistry.getTitle(songId)
+                val artist = YouTubeIdRegistry.getArtist(songId)
+                val query = if (artist.isNotBlank()) "$title $artist" else title
+                if (query.isNotBlank()) {
+                    val matched = auroraApiClient.searchTracks(query, limit = 1).firstOrNull()
+                    if (matched != null) {
+                        val similarCatalogTracks = auroraApiClient.getSimilarTracks(matched.id, limit = 20)
+                        if (similarCatalogTracks.isNotEmpty()) {
+                            val tracks = similarCatalogTracks.map { st ->
+                                val cleanTitle = cleanMetadataText(st.title)
+                                val cleanArtist = cleanMetadataText(st.author)
+                                val cleanAlbum = cleanMetadataText(st.albumName ?: "")
+                                val durationSec = (st.durationMs / 1000).toInt()
+                                val coverUrl = st.artworkUrl ?: ""
+
+                                val mappedArtists = st.author.split(Regex(""",\s*|/\s*""")).map { aName ->
+                                    val cleanA = cleanMetadataText(aName)
+                                    val aId = YouTubeIdRegistry.registerArtistByName(cleanA)
+                                    com.lin0721.linmusic.core.model.Artist(id = aId, name = cleanA)
+                                }.ifEmpty {
+                                    val aId = YouTubeIdRegistry.registerArtistByName(cleanArtist)
+                                    listOf(com.lin0721.linmusic.core.model.Artist(id = aId, name = cleanArtist))
+                                }
+
+                                val simiSongId = YouTubeIdRegistry.registerPlaceholder(
+                                    title = cleanTitle,
+                                    artist = cleanArtist,
+                                    album = cleanAlbum,
+                                    durationSec = durationSec,
+                                    coverUrl = coverUrl,
+                                    artists = mappedArtists
+                                ).id
+
+                                val track = Track(
+                                    id = simiSongId,
+                                    name = cleanTitle,
+                                    ar = mappedArtists,
+                                    al = com.lin0721.linmusic.core.model.Album(
+                                        id = (st.albumId ?: cleanAlbum).hashCode().toLong() and 0x7FFFFFFFL,
+                                        name = cleanAlbum,
+                                        picUrl = coverUrl
+                                    ),
+                                    dt = st.durationMs
+                                )
+                                YouTubeIdRegistry.registerTrack(track)
+                                track
+                            }
+                            emit(Result.success(tracks))
+                            return@flow
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Spotify getSimilarTracks failed for songId=$songId: ${e.message}")
+            }
+        }
+
+        // ── FALLBACK: Use YouTube Music's related/next endpoint for similar songs ──
         val videoId = YouTubeIdRegistry.getVideoId(songId)
         if (videoId == null) {
             emit(Result.success(emptyList()))

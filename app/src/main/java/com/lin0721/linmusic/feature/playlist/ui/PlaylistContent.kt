@@ -29,6 +29,7 @@ import com.lin0721.linmusic.core.model.Track
 import com.lin0721.linmusic.core.ui.components.PlaylistCollectItem
 import com.lin0721.linmusic.core.ui.components.PlaylistCollectSheet
 import com.lin0721.linmusic.core.ui.components.PlaylistCollectState
+import com.lin0721.linmusic.core.ui.components.SearchResultRowSkeleton
 import com.lin0721.linmusic.core.model.PlaylistDetail
 import com.lin0721.linmusic.core.ui.theme.FallbackBase
 import com.lin0721.linmusic.core.ui.theme.mimikyuStatusBarTopPadding
@@ -307,15 +308,8 @@ fun PlaylistContent(
             }
 
             if (historySongsLoading) {
-                item(key = "history_songs_loading") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
+                items(6, key = { "history_skel_$it" }) {
+                    SearchResultRowSkeleton()
                 }
             } else {
                 playlistTrackItems(

@@ -143,6 +143,7 @@ dependencies {
 
     // Media3 & Media
     implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media)
     implementation(libs.androidx.datastore.preferences)

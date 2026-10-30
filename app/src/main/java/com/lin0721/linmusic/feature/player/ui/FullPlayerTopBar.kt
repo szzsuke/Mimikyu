@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -107,7 +108,7 @@ fun FullPlayerTopBar(
                         Icon(
                             painter = painterResource(if (isLiked) MimikyuIcons.HeartFilled else MimikyuIcons.Heart),
                             contentDescription = null,
-                            tint = if (isLiked) Color(0xFFFF007F) else Color.White,
+                            tint = if (isLiked) MaterialTheme.colorScheme.primary else Color.White,
                             modifier = Modifier.size(24.dp)
                         )
                     }

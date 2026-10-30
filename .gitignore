@@ -85,3 +85,10 @@ rules.md
 mimikyu_map.md
 .agents/
 
+# Remote catalog client (discretion)
+app/src/main/java/com/lin0721/linmusic/core/aurora/
+app/src/main/java/com/lin0721/linmusic/core/spotify/
+
+# Local reference clones
+bitchord/
+

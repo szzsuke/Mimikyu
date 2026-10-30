@@ -37,73 +37,101 @@ fun Color.saturateIfChromatic(amount: Float): Color {
     return saturate(amount * weight)
 }
 
-val BackgroundDark = Color(0xFF141414)
-val SurfaceDark = Color(0xFF1A1A1A)
-val SurfaceLight = Color(0xFF262626)
-val TextGray = Color(0xFFB3B3B3)
+/**
+ * Transforms an album color into a soft pastel shade with the exact same tone and brightness as MimikyuPink.
+ */
+fun Color.toPastelProgressColor(): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.RGBToHSV(
+        (red * 255f).toInt().coerceIn(0, 255),
+        (green * 255f).toInt().coerceIn(0, 255),
+        (blue * 255f).toInt().coerceIn(0, 255),
+        hsv
+    )
+    val hue = if (hsv[1] < 0.05f) 354f else hsv[0]
+    hsv[0] = hue
+    hsv[1] = 0.42f
+    hsv[2] = 0.98f
+    return Color(android.graphics.Color.HSVToColor(hsv))
+}
 
-// Official Mimikyu "Magenta X Charcoal" Color Palette
-val MimikyuMagenta = Color(0xFFFF007F)
-val MimikyuDarkMagenta = Color(0xFFD6006B)
-val MimikyuCharcoal = Color(0xFF1A1A1A)
-val MimikyuDarkCharcoal = Color(0xFF121212)
-val MimikyuMediumCharcoal = Color(0xFF282828)
-val MimikyuLightGray = Color(0xFFB3B3B3)
-val MimikyuWhite = Color(0xFFFFFFFF)
+val BackgroundDark = Color(0xFF121213)
+val SurfaceDark = Color(0xFF1F1F20)
+val SurfaceLight = Color(0xFF2C2C2E)
+val TextGray = Color(0xFFA5A5A8)
 
-// Core palette aliases mapped to Magenta X Charcoal
-val MimikyuGreen = MimikyuMagenta
-val MimikyuDarkGreen = MimikyuDarkMagenta
+// Official Mimikyu "Black #121213 X Quartz Pink #FF9BA5 X Off White #F3F2F5" Color Palette
+val MimikyuPink = Color(0xFFFF9BA5)
+val MimikyuDarkPink = Color(0xFFE58791)
+val MimikyuYellow = MimikyuPink
+val MimikyuDarkYellow = MimikyuDarkPink
+val MimikyuCharcoal = Color(0xFF121213)
+val MimikyuDarkCharcoal = Color(0xFF0D0D0E)
+val MimikyuMediumCharcoal = Color(0xFF1F1F20)
+val MimikyuLightGray = Color(0xFFA5A5A8)
+val MimikyuOffWhite = Color(0xFFF3F2F5)
+val MimikyuSilver = MimikyuOffWhite
+val MimikyuWhite = MimikyuOffWhite
+
+// ExoPlayer Progress Bar Background: Stone White (Stone Gray #C6C6C6)
+val MimikyuStoneWhite = Color(0xFFC6C6C6)
+val ProgressTrackStoneWhite = MimikyuStoneWhite
+
+// Core palette aliases mapped to Quartz Pink, Black & Off White
+val MimikyuMagenta = MimikyuPink
+val MimikyuDarkMagenta = MimikyuDarkPink
+val MimikyuGreen = MimikyuPink
+val MimikyuDarkGreen = MimikyuDarkPink
 val MimikyuBlack = MimikyuCharcoal
 val MimikyuDarkGray = MimikyuCharcoal
 val MimikyuMediumGray = MimikyuMediumCharcoal
 
 // Brand Color Palette (Synchronized with Mimikyu)
-val OctoberRed = MimikyuMagenta
-val OctoberCrimson = MimikyuDarkMagenta
+val OctoberRed = MimikyuPink
+val OctoberCrimson = MimikyuDarkPink
 val OctoberCharcoal = MimikyuCharcoal
-val OctoberWhite = MimikyuWhite
+val OctoberWhite = MimikyuOffWhite
 
-val NeteaseRed = MimikyuMagenta
+val NeteaseRed = MimikyuPink
 val GradientStart = MimikyuCharcoal
-val BackgroundBlack = Color(0xFF121212)
+val BackgroundBlack = Color(0xFF121213)
 
 // Category Navigation Pill Selected
-val NavPillSelected = Color(0xFF331A26)
+val NavPillSelected = Color(0xFF2C2C2E)
 
-// Filter Pill Inactive
-val FilterPillInactive = Color(0xFF262626)
+// Filter Pill Inactive (Shade lighter #1F1F20)
+val FilterPillInactive = Color(0xFF1F1F20)
 
 // Toast
-val ToastBackground = MimikyuCharcoal
+val ToastBackground = MimikyuMediumCharcoal
 
 // Web Login Background
-val WebLoginBackground = Color(0xFF121212)
+val WebLoginBackground = Color(0xFF121213)
 
 // Fallback base
 val FallbackBase = MimikyuCharcoal
 
 // Playlists/Artists placeholder
-val CoverPlaceholderDark = MimikyuCharcoal
+val CoverPlaceholderDark = MimikyuMediumCharcoal
 
 // Sleep Timer warning
 val TimerWarningRed = Color(0xFFFF5252)
 
-// Library gradient
+// Library gradient (Liked Songs Quartz Pink Gradient)
 val LibraryVioletGradient = listOf(
-    Color(0xFFFF007F),
-    Color(0xFFA855F7),
-    Color(0xFF6366F1)
+    Color(0xFFFF9BA5),
+    Color(0xFFE58791),
+    Color(0xFFD07580)
 )
 
 // Library Blue Green gradient
 val LibraryBlueGreenGradient = listOf(
-    Color(0xFFFF007F),
-    Color(0xFF8B5CF6)
+    Color(0xFFFF9BA5),
+    Color(0xFFE58791)
 )
 
 // Download
-val DownloadedGreen = MimikyuMagenta
+val DownloadedGreen = MimikyuYellow
 
 // SVIP
 val SvipGold = Color(0xFFD4A017)

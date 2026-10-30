@@ -104,21 +104,38 @@ object InnerTubeRadioEngine {
         }.getOrNull()
     }
 
+    private val VIDEO_WORD = Regex("""\bvideos?\b""", RegexOption.IGNORE_CASE)
+
     private fun toQueueItem(song: SongItem): QueueItem? {
         return try {
-            val cleanTitle = cleanMetadataText(song.title)
-            val cleanArtist = cleanMetadataText(song.artists.joinToString(", ") { cleanMetadataText(it.name) })
+            // Drop video uploads and widescreen video clips to ensure pure catalogue audio
+            if (song.isVideoSong) return null
+
+            val (cleanTitle, cleanArtist) = com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist(
+                song.title,
+                song.artists.joinToString(", ") { it.name }
+            )
             if (cleanTitle.isBlank()) return null
+
+            // Discard titles that are purely video compilations
+            if (VIDEO_WORD.containsMatchIn(cleanTitle) && !cleanTitle.contains("video games", ignoreCase = true)) {
+                return null
+            }
+
+            val cachedStudio = com.lin0721.linmusic.core.metadata.SongArtworkEngine.getCachedCoverArt(cleanTitle, cleanArtist)
+            val effectiveThumbnail = cachedStudio ?: song.thumbnail.orEmpty()
 
             val regId = YouTubeIdRegistry.register(
                 videoId = song.id,
                 title = cleanTitle,
                 artist = cleanArtist,
-                coverUrl = song.thumbnail.orEmpty(),
+                coverUrl = effectiveThumbnail,
                 durationSec = song.duration ?: 0
             )
 
-            val studioCover = YouTubeIdRegistry.getCoverUrl(regId).takeIf { it.isNotBlank() } ?: song.thumbnail.orEmpty()
+            val rawCover = YouTubeIdRegistry.getCoverUrl(regId).takeIf { it.isNotBlank() } ?: effectiveThumbnail
+            val studioCover = com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(rawCover, 1200)
+
             QueueItem(
                 songId = regId,
                 title = cleanTitle,

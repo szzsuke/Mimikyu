@@ -48,6 +48,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import com.lin0721.linmusic.core.canvas.CanvasArtwork
+import com.lin0721.linmusic.core.canvas.CanvasRepository
+import com.lin0721.linmusic.core.metadata.SongArtworkEngine
+import com.lin0721.linmusic.core.preferences.SettingsPreferences
+import org.koin.compose.koinInject
+
 private val SidebarToggleGap = 4.dp
 
 @Composable
@@ -56,6 +62,7 @@ fun FullPlayerCoverPager(
     currentIndex: Int,
     fallbackCoverUrl: String,
     onPlayIndex: (Int) -> Unit,
+    isPlaying: Boolean = true,
     modifier: Modifier = Modifier,
     contentPadding: Dp = MimikyuSpacing.lg,
     shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(RadiusCompact),
@@ -112,6 +119,11 @@ fun FullPlayerCoverPager(
         queue.map { it.uniqueQueueId }
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val settingsPreferences: SettingsPreferences = koinInject()
+    val animatedCoverEnabled by settingsPreferences.animatedCoverEnabled.collectAsState(initial = true)
+    val canvasOverCellular by settingsPreferences.canvasOverCellular.collectAsState(initial = true)
+
     HorizontalPager(
         state = pagerState,
         key = { page -> pageKeys.getOrElse(page) { page } },
@@ -121,11 +133,28 @@ fun FullPlayerCoverPager(
     ) { page ->
         val item = queue.getOrNull(page)
         val resolvedCoverUrl = if (item != null) {
-            rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri)
-                .replace("?param=300y300", "")
+            val raw = rememberQueueItemCoverUrl(item.coverUrl, item.songId, item.localUri, item.title, item.artist)
                 .ifBlank { if (page == currentIndex) fallbackCoverUrl else "" }
+            SongArtworkEngine.optimizeArtworkUrl(raw, 1200)
         } else {
-            fallbackCoverUrl
+            SongArtworkEngine.optimizeArtworkUrl(fallbackCoverUrl, 1200)
+        }
+
+        var canvasArtwork by remember(item?.songId, item?.title, item?.artist) {
+            mutableStateOf<CanvasArtwork?>(null)
+        }
+
+        LaunchedEffect(item?.songId, item?.title, item?.artist, animatedCoverEnabled, canvasOverCellular) {
+            if (page == currentIndex && animatedCoverEnabled && item != null) {
+                canvasArtwork = CanvasRepository.canvasFor(
+                    title = item.title,
+                    artist = item.artist,
+                    album = item.album,
+                    videoId = item.effectiveVideoId() ?: ""
+                )
+            } else {
+                canvasArtwork = null
+            }
         }
 
         Box(
@@ -173,6 +202,18 @@ fun FullPlayerCoverPager(
                         }
                     )
             )
+
+            // Silent animated/motion cover art overlay
+            val currentCanvas = canvasArtwork
+            if (page == currentIndex && currentCanvas != null && !isTransparentCover) {
+                CanvasArtworkPlayer(
+                    canvas = currentCanvas,
+                    isPlaying = isPlaying,
+                    contentMode = CanvasContentMode.CROP,
+                    shape = shape,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
@@ -187,6 +228,7 @@ fun FullPlayerCoverArt(
     queue: List<QueueItem> = emptyList(),
     currentIndex: Int = 0,
     onPlayIndex: (Int) -> Unit = {},
+    isPlaying: Boolean = true,
     previousCoverUrl: String? = null,
     nextCoverUrl: String? = null,
     onSwipeToPrevious: () -> Unit = {},
@@ -224,6 +266,7 @@ fun FullPlayerCoverArt(
             currentIndex = currentIndex,
             fallbackCoverUrl = coverUrl,
             onPlayIndex = onPlayIndex,
+            isPlaying = isPlaying,
             contentPadding = 0.dp,
             shape = RoundedCornerShape(RadiusCompact),
             elevation = 24.dp,
@@ -231,6 +274,7 @@ fun FullPlayerCoverArt(
             onCurrentBitmapLoaded = onCurrentBitmapLoaded,
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(top = 6.dp)
                 .padding(horizontal = MimikyuSpacing.lg + coverExtraInset)
         )
     }

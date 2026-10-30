@@ -104,7 +104,7 @@ class MetadataEnricherTest {
 
         val lowRes2 = "https://lh3.googleusercontent.com/wP_k123456=s60"
         val upscaled2 = YouTubeThumbnailUpscaler.upscale(lowRes2)
-        assertEquals("https://lh3.googleusercontent.com/wP_k123456=w1200-h1200-l90-rj", upscaled2)
+        assertEquals("https://lh3.googleusercontent.com/wP_k123456=s1200", upscaled2)
 
         val noEquals = "https://lh3.googleusercontent.com/wP_k123456"
         val upscaled3 = YouTubeThumbnailUpscaler.upscale(noEquals)

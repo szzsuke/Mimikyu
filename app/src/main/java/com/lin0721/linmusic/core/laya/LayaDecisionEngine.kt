@@ -253,4 +253,247 @@ object LayaDecisionEngine {
                 lower.contains("sddefault") ||
                 (lower.contains("hqdefault") && !lower.contains("hq720"))
     }
+
+    /**
+     * Laya Continuous Affinity Scoring:
+     * S = L * exp(-lambda * deltaT) * B_repeat * M_affinity
+     * where:
+     * - lambda = ln(2) / 7.0 (7-day half-life decay)
+     * - B_repeat = 1.0 + 0.2 * (min(plays, 5) - 1)
+     * - M_affinity = 1.0 + 0.25 * (min(N, 5) - 1)
+     */
+    fun calculateAffinityScore(
+        listenCount: Int,
+        daysSinceLastPlay: Double,
+        repeatCount: Int = 1,
+        distinctTracks: Int = 1
+    ): Float {
+        if (listenCount <= 0) return 0f
+        val lambda = kotlin.math.ln(2.0) / 7.0
+        val dt = daysSinceLastPlay.coerceAtLeast(0.0)
+        val decay = kotlin.math.exp(-lambda * dt)
+
+        val playsClamped = repeatCount.coerceIn(1, 5)
+        val bRepeat = 1.0 + 0.2 * (playsClamped - 1)
+
+        val tracksClamped = distinctTracks.coerceIn(1, 5)
+        val mAffinity = 1.0 + 0.25 * (tracksClamped - 1)
+
+        val score = (listenCount.toDouble() * decay * bRepeat * mAffinity).toFloat()
+        return score.coerceAtLeast(0f)
+    }
+
+    /**
+     * Normalized entropy confidence:
+     * confidence = 1.0 - (H(p) / ln(k))
+     * where H(p) = -sum(p_i * ln(p_i))
+     */
+    fun calculateEntropyConfidence(probabilities: List<Float>): Float {
+        val k = probabilities.size
+        if (k <= 1) return 1.0f
+        var entropy = 0.0
+        for (p in probabilities) {
+            if (p > 1e-6f) {
+                entropy -= p.toDouble() * kotlin.math.ln(p.toDouble())
+            }
+        }
+        val maxEntropy = kotlin.math.ln(k.toDouble())
+        if (maxEntropy <= 0.0) return 1.0f
+        val conf = 1.0 - (entropy / maxEntropy)
+        return conf.toFloat().coerceIn(0f, 1f)
+    }
+
+    /**
+     * Computes continuous affinity scoring and normalized entropy confidence
+     * over artists and genres from user history.
+     */
+    fun scoreArtistsAndGenres(tracks: List<AffinityInputTrack>): AffinityScoringResult {
+        if (tracks.isEmpty()) {
+            return AffinityScoringResult(emptyList(), emptyList(), 0f, 0f)
+        }
+
+        val nowMs = System.currentTimeMillis()
+        val oneDayMs = 24.0 * 60 * 60 * 1000
+
+        // 1. Group by Artist
+        val artistGroups = tracks.groupBy { it.artist.trim() }.filterKeys { it.isNotBlank() }
+        val artistScores = mutableMapOf<String, Float>()
+        for ((artist, artistTracks) in artistGroups) {
+            val totalPlays = artistTracks.sumOf { it.playCount.coerceAtLeast(1) }
+            val mostRecent = artistTracks.maxOfOrNull { it.lastPlayedTimestampMs } ?: nowMs
+            val daysAgo = ((nowMs - mostRecent).coerceAtLeast(0L)).toDouble() / oneDayMs
+            val distinctTracks = artistTracks.map { it.title.trim().lowercase() }.distinct().size
+            val repeatCount = artistTracks.map { it.playCount }.maxOrNull() ?: 1
+
+            val score = calculateAffinityScore(totalPlays, daysAgo, repeatCount, distinctTracks)
+            artistScores[artist] = score
+        }
+
+        // 2. Group by Genre
+        val genreGroups = tracks.groupBy { it.genre?.trim()?.lowercase().orEmpty() }.filterKeys { it.isNotBlank() }
+        val genreScores = mutableMapOf<String, Float>()
+        for ((genre, genreTracks) in genreGroups) {
+            val totalPlays = genreTracks.sumOf { it.playCount.coerceAtLeast(1) }
+            val mostRecent = genreTracks.maxOfOrNull { it.lastPlayedTimestampMs } ?: nowMs
+            val daysAgo = ((nowMs - mostRecent).coerceAtLeast(0L)).toDouble() / oneDayMs
+            val distinctTracks = genreTracks.map { it.title.trim().lowercase() }.distinct().size
+            val repeatCount = genreTracks.map { it.playCount }.maxOrNull() ?: 1
+
+            val score = calculateAffinityScore(totalPlays, daysAgo, repeatCount, distinctTracks)
+            genreScores[genre] = score
+        }
+
+        // Softmax & Entropy for Top Artists
+        val sortedArtists = artistScores.toList().sortedByDescending { it.second }.take(10)
+        val artistCandidates = if (sortedArtists.isNotEmpty()) {
+            val maxScore = sortedArtists.first().second
+            val expScores = sortedArtists.map { kotlin.math.exp((it.second - maxScore).toDouble()).toFloat() }
+            val sumExp = expScores.sum().coerceAtLeast(1e-6f)
+            val probs = expScores.map { it / sumExp }
+            val conf = calculateEntropyConfidence(probs)
+            sortedArtists.mapIndexed { idx, pair ->
+                ScoredCandidate(pair.first, pair.second, probs[idx])
+            } to conf
+        } else {
+            emptyList<ScoredCandidate>() to 0f
+        }
+
+        // Softmax & Entropy for Top Genres
+        val sortedGenres = genreScores.toList().sortedByDescending { it.second }.take(10)
+        val genreCandidates = if (sortedGenres.isNotEmpty()) {
+            val maxScore = sortedGenres.first().second
+            val expScores = sortedGenres.map { kotlin.math.exp((it.second - maxScore).toDouble()).toFloat() }
+            val sumExp = expScores.sum().coerceAtLeast(1e-6f)
+            val probs = expScores.map { it / sumExp }
+            val conf = calculateEntropyConfidence(probs)
+            sortedGenres.mapIndexed { idx, pair ->
+                ScoredCandidate(pair.first, pair.second, probs[idx])
+            } to conf
+        } else {
+            emptyList<ScoredCandidate>() to 0f
+        }
+
+        return AffinityScoringResult(
+            topArtists = artistCandidates.first,
+            topGenres = genreCandidates.first,
+            artistConfidence = artistCandidates.second,
+            genreConfidence = genreCandidates.second
+        )
+    }
+
+    /**
+     * Deduces the mood for the user's current time-of-day block using the 11 mood buckets:
+     * fun, mellow, energy, cleaning, wedding, exercise, vacation, chill, party, workout, focus.
+     */
+    fun decideMoodForTimeOfDay(
+        recentTracks: List<AffinityInputTrack>,
+        hourOfDay: Int = java.time.LocalTime.now().hour,
+        localDate: java.time.LocalDate = java.time.LocalDate.now()
+    ): MoodDecision {
+        val timeBlock = when (hourOfDay) {
+            in 6..11 -> "Morning"
+            in 12..17 -> "Evening"
+            in 18..23 -> "Night"
+            else -> "Late Night"
+        }
+
+        val dayOfWeek = localDate.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }
+        val formattedTitle = "Soundtrack your $dayOfWeek $timeBlock"
+
+        val moodBuckets = listOf(
+            "fun", "mellow", "energy", "cleaning", "wedding",
+            "exercise", "vacation", "chill", "party", "workout", "focus"
+        )
+
+        // Time-of-day prior distributions
+        val timePriors = when (timeBlock) {
+            "Morning" -> mapOf(
+                "focus" to 0.35f, "energy" to 0.25f, "workout" to 0.15f, "exercise" to 0.10f, "chill" to 0.15f
+            )
+            "Evening" -> mapOf(
+                "energy" to 0.30f, "fun" to 0.25f, "chill" to 0.20f, "focus" to 0.15f, "cleaning" to 0.10f
+            )
+            "Night" -> mapOf(
+                "chill" to 0.35f, "party" to 0.25f, "fun" to 0.15f, "mellow" to 0.15f, "wedding" to 0.10f
+            )
+            else -> mapOf( // Late Night
+                "mellow" to 0.45f, "chill" to 0.35f, "focus" to 0.20f
+            )
+        }
+
+        val last10 = recentTracks.takeLast(10)
+        val tokens = last10.flatMap { track ->
+            (track.title + " " + (track.genre ?: "") + " " + (track.album ?: "")).lowercase()
+                .split(Regex("[\\s,._\\-]+"))
+        }.filter { it.length > 2 }
+
+        val moodScores = mutableMapOf<String, Float>()
+        for (mood in moodBuckets) {
+            val prior = timePriors[mood] ?: 0.05f
+            var tokenScore = 0f
+            for (token in tokens) {
+                if (token.contains(mood) || mood.contains(token)) {
+                    tokenScore += 1.0f
+                }
+                // Secondary keyword affinities
+                when (mood) {
+                    "energy" -> if (token in setOf("dance", "electronic", "rock", "fast", "power", "hype", "beat")) tokenScore += 0.8f
+                    "chill" -> if (token in setOf("acoustic", "lofi", "ambient", "slow", "soft", "calm", "relax")) tokenScore += 0.8f
+                    "focus" -> if (token in setOf("study", "piano", "classical", "instrumental", "deep", "mind")) tokenScore += 0.8f
+                    "mellow" -> if (token in setOf("sleep", "dream", "quiet", "night", "sad", "indie", "soul")) tokenScore += 0.8f
+                    "party" -> if (token in setOf("club", "night", "remix", "bass", "pop", "dj", "turn")) tokenScore += 0.8f
+                    "workout", "exercise" -> if (token in setOf("gym", "run", "pump", "training", "trap", "hiphop")) tokenScore += 0.8f
+                    "cleaning" -> if (token in setOf("upbeat", "bop", "retro", "disco", "groove")) tokenScore += 0.8f
+                    "vacation" -> if (token in setOf("summer", "beach", "tropical", "sun", "travel", "holiday")) tokenScore += 0.8f
+                    "wedding" -> if (token in setOf("love", "romantic", "ballad", "acoustic", "heart")) tokenScore += 0.8f
+                    "fun" -> if (token in setOf("happy", "feelgood", "bright", "cheer", "vibe")) tokenScore += 0.8f
+                }
+            }
+            moodScores[mood] = prior * (1.0f + tokenScore)
+        }
+
+        val bestMood = moodScores.maxByOrNull { it.value }?.key ?: "chill"
+        val scoresList = moodBuckets.map { moodScores[it] ?: 0f }
+        val maxScore = scoresList.maxOrNull() ?: 1f
+        val expScores = scoresList.map { kotlin.math.exp((it - maxScore).toDouble()).toFloat() }
+        val sumExp = expScores.sum().coerceAtLeast(1e-6f)
+        val probs = expScores.map { it / sumExp }
+        val confidence = calculateEntropyConfidence(probs)
+
+        return MoodDecision(
+            mood = bestMood,
+            timeBlock = timeBlock,
+            formattedTitle = formattedTitle,
+            confidence = confidence
+        )
+    }
 }
+
+data class ScoredCandidate(
+    val name: String,
+    val score: Float,
+    val probability: Float = 0f
+)
+
+data class AffinityScoringResult(
+    val topArtists: List<ScoredCandidate>,
+    val topGenres: List<ScoredCandidate>,
+    val artistConfidence: Float,
+    val genreConfidence: Float
+)
+
+data class MoodDecision(
+    val mood: String,
+    val timeBlock: String,
+    val formattedTitle: String,
+    val confidence: Float
+)
+
+data class AffinityInputTrack(
+    val title: String,
+    val artist: String,
+    val album: String? = null,
+    val genre: String? = null,
+    val playCount: Int = 1,
+    val lastPlayedTimestampMs: Long = System.currentTimeMillis()
+)

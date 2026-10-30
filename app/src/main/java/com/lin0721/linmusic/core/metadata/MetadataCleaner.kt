@@ -54,13 +54,40 @@ fun cleanMetadataText(raw: String?): String {
     return text.ifBlank { raw.trim() }
 }
 
+val KNOWN_CHANNELS_AND_CURATORS = setOf(
+    "i-pop hits", "t-series", "zee music company", "sony music india",
+    "speed records", "yrf", "tips official", "tips", "white hill music",
+    "geet mp3", "desi music factory", "aditya music", "lahari music",
+    "saregama music", "saregama", "eros now music", "eros now",
+    "sufiscore", "t-series apna punjab", "various artists", "topic",
+    "vevo", "warnermusic", "universal music group", "coke studio"
+)
+
+fun isCuratorOrChannel(name: String?): Boolean {
+    if (name.isNullOrBlank()) return true
+    val lower = name.trim().lowercase()
+    if (lower in KNOWN_CHANNELS_AND_CURATORS) return true
+    if (lower.endsWith(" records") || lower.endsWith(" music company") ||
+        lower.endsWith(" entertainment") || lower.endsWith(" hits") ||
+        lower.endsWith(" official") || lower.endsWith(" music")
+    ) return true
+    return false
+}
+
+private val FEAT_REGEX = Regex("""(?i)\s*[\(\[\{]?\s*(?:feat\.?|ft\.?|featuring)\s+([^\)\]\}]+)[\)\]\}]?""")
+
 /**
  * Extracts and separates pure track title and clean artist name.
- * Handles cases where upload title combines "Artist - Title", "Title - Artist", etc.
+ * Handles cases where upload title combines "Artist - Title", "Title - Artist",
+ * "Artist ft. Collaborator - Title", or where uploader is a channel (e.g. "I-POP Hits").
  */
 fun extractCleanTitleAndArtist(rawTitle: String, rawArtist: String): Pair<String, String> {
     val cleanT = cleanMetadataText(rawTitle)
-    val cleanA = cleanMetadataText(rawArtist)
+    var cleanA = cleanMetadataText(rawArtist)
+
+    if (isCuratorOrChannel(cleanA)) {
+        cleanA = ""
+    }
 
     if (cleanT.isBlank()) return Pair(cleanT, cleanA)
 
@@ -71,27 +98,72 @@ fun extractCleanTitleAndArtist(rawTitle: String, rawArtist: String): Pair<String
             val p0 = parts[0]
             val p1 = parts[1]
 
-            // If artist was empty or generic, first part is usually artist and second is title
+            // If one part has "ft." or "feat.", it is almost certainly the artist credit with collaborators
+            if (FEAT_REGEX.containsMatchIn(p0) && !FEAT_REGEX.containsMatchIn(p1)) {
+                val artists = formatFeaturedArtists(p0)
+                return Pair(cleanMetadataText(p1), artists)
+            } else if (FEAT_REGEX.containsMatchIn(p1) && !FEAT_REGEX.containsMatchIn(p0)) {
+                val artists = formatFeaturedArtists(p1)
+                return Pair(cleanMetadataText(p0), artists)
+            }
+
+            // If artist was empty or a curator, first part is usually artist and second is title
             if (cleanA.isBlank()) {
-                return Pair(p1, p0)
+                return Pair(cleanMetadataText(p1), cleanMetadataText(p0))
             }
 
             // Check if left part matches the artist
             val p0Lower = p0.lowercase()
             val aLower = cleanA.lowercase()
             if (p0Lower == aLower || p0Lower.contains(aLower) || aLower.contains(p0Lower)) {
-                return Pair(p1, cleanA)
+                return Pair(cleanMetadataText(p1), cleanA)
             }
 
             // Check if right part matches the artist
             val p1Lower = p1.lowercase()
             if (p1Lower == aLower || p1Lower.contains(aLower) || aLower.contains(p1Lower)) {
-                return Pair(p0, cleanA)
+                return Pair(cleanMetadataText(p0), cleanA)
+            }
+        }
+    }
+
+    // Handle title containing "ft." or "feat." without a dash separator
+    if (FEAT_REGEX.containsMatchIn(cleanT)) {
+        val match = FEAT_REGEX.find(cleanT)
+        if (match != null) {
+            val featured = match.groupValues.getOrNull(1)?.trim().orEmpty()
+            val beforeFeat = cleanT.substring(0, match.range.first).trim()
+            val afterFeat = cleanT.substring(match.range.last + 1).trim()
+
+            if (cleanA.isBlank()) {
+                // If artist was curator or blank, beforeFeat is lead artist or title
+                val artists = if (beforeFeat.isNotBlank() && featured.isNotBlank()) {
+                    "$beforeFeat, $featured"
+                } else beforeFeat.ifBlank { featured }
+
+                val finalTitle = afterFeat.ifBlank { beforeFeat }
+                return Pair(cleanMetadataText(finalTitle), cleanMetadataText(artists))
+            } else {
+                // If artist is known, strip "ft. ..." from title and append featured to artist
+                val cleanTitleWithoutFeat = (beforeFeat + " " + afterFeat).trim()
+                val combinedArtist = if (featured.isNotBlank() && !cleanA.contains(featured, ignoreCase = true)) {
+                    "$cleanA, $featured"
+                } else cleanA
+                return Pair(cleanMetadataText(cleanTitleWithoutFeat), cleanMetadataText(combinedArtist))
             }
         }
     }
 
     return Pair(cleanT, cleanA)
+}
+
+private fun formatFeaturedArtists(raw: String): String {
+    val match = FEAT_REGEX.find(raw) ?: return cleanMetadataText(raw)
+    val lead = raw.substring(0, match.range.first).trim()
+    val featured = match.groupValues.getOrNull(1)?.trim().orEmpty()
+    return if (lead.isNotBlank() && featured.isNotBlank()) {
+        "${cleanMetadataText(lead)}, ${cleanMetadataText(featured)}"
+    } else cleanMetadataText(raw)
 }
 
 /**

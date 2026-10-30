@@ -21,6 +21,7 @@ import com.lin0721.linmusic.di.updateModule
 import com.lin0721.linmusic.di.metadataModule
 import com.lin0721.linmusic.di.viewModelModule
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.android.ext.android.inject
@@ -110,5 +111,12 @@ class MimikyuApplication : Application() {
                 .setWorkerFactory(downloadWorkerFactory)
                 .build()
         )
+
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                val syncUseCase = org.koin.java.KoinJavaComponent.get<com.lin0721.linmusic.core.auth.YouTubeAccountSyncUseCase>(com.lin0721.linmusic.core.auth.YouTubeAccountSyncUseCase::class.java)
+                syncUseCase.restoreSessionIfAvailable()
+            }
+        }
     }
 }
