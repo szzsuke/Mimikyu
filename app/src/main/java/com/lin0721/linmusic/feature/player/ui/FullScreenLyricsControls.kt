@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -67,6 +68,7 @@ import kotlin.math.roundToInt
 fun FullScreenLyricsToolbar(
     secondaryMode: String,
     hasTranslation: Boolean,
+    chorusStartMs: Long? = null,
     hasRoma: Boolean,
     onToggleSecondaryMode: () -> Unit,
     onShareClick: () -> Unit,
@@ -528,108 +530,6 @@ fun FullScreenLyricsSettingsSheet(
         }
     }
 }
-
-@Composable
-private fun FullScreenProgressBar(
-    currentPositionProvider: () -> Long,
-    duration: Long,
-    onSeek: (Long) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var isSeeking by remember { mutableStateOf(false) }
-    var seekPosition by remember { mutableFloatStateOf(0f) }
-
-    val currentPosition = currentPositionProvider()
-    val progress = if (duration > 0) {
-        if (isSeeking) seekPosition else currentPosition.toFloat() / duration
-    } else 0f
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        var trackWidthPx by remember { mutableFloatStateOf(0f) }
-        val density = LocalDensity.current
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(24.dp)
-                .onSizeChanged { trackWidthPx = it.width.toFloat() }
-                .pointerInput(duration) {
-                    detectTapGestures(
-                        onPress = { offset ->
-                            if (trackWidthPx > 0f && duration > 0L) {
-                                isSeeking = true
-                                val newProgress = (offset.x / trackWidthPx).coerceIn(0f, 1f)
-                                seekPosition = newProgress
-                                val released = tryAwaitRelease()
-                                if (released) {
-                                    isSeeking = false
-                                    onSeek((seekPosition * duration).toLong())
-                                } else {
-                                    isSeeking = false
-                                }
-                            }
-                        }
-                    )
-                }
-                .draggable(
-                    orientation = Orientation.Horizontal,
-                    state = rememberDraggableState { delta ->
-                        if (trackWidthPx > 0f && duration > 0L) {
-                            isSeeking = true
-                            seekPosition = (seekPosition + delta / trackWidthPx).coerceIn(0f, 1f)
-                        }
-                    },
-                    onDragStarted = { isSeeking = true },
-                    onDragStopped = {
-                        isSeeking = false
-                        onSeek((seekPosition * duration).toLong())
-                    }
-                ),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(1.5.dp))
-                    .background(Color.White.copy(alpha = 0.2f))
-            )
-            // Play Progress
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(1.5.dp))
-                    .background(Color.White)
-            )
-            // Thumb
-            val thumbSize = if (isSeeking) 14.dp else 8.dp
-            val thumbRadiusPx = with(density) { (thumbSize / 2).toPx() }
-            val thumbOffsetPx = (progress.coerceIn(0f, 1f) * trackWidthPx - thumbRadiusPx)
-                .coerceIn(0f, (trackWidthPx - thumbRadiusPx * 2).coerceAtLeast(0f))
-            val thumbOffsetDp = with(density) { thumbOffsetPx.toDp() }
-            Box(
-                modifier = Modifier
-                    .offset(x = thumbOffsetDp)
-                    .size(thumbSize)
-                    .background(Color.White, CircleShape)
-            )
-        }
-
-        // Current Play time and Duration
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 2.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            val displayPosition = if (isSeeking) (seekPosition * duration).toLong() else currentPosition
-            Text(formatTime(displayPosition), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-            Text(formatTime(duration), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-        }
-    }
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 // of Play（ +  + Play）
 // ────────────────────────────────────────────────────────────────────────────
@@ -652,6 +552,7 @@ fun FullScreenControls(
     onToggleSecondaryMode: () -> Unit,
     onShareLyrics: () -> Unit,
     onLyricsSettingsClick: (() -> Unit)? = null,
+    chorusStartMs: Long? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -673,11 +574,14 @@ fun FullScreenControls(
 
         Spacer(modifier = Modifier.height(MimikyuSpacing.xs))
 
-        // 2. Isolated Progress Bar (ticker decoupled from parent toolbar & transport buttons)
-        FullScreenProgressBar(
+        // 2. Progress Bar matching ExoPlayer
+        ProgressSection(
             currentPositionProvider = currentPositionProvider,
             duration = duration,
-            onSeek = onSeek
+            onSeek = onSeek,
+            modifier = Modifier,
+            chorusStartMs = chorusStartMs,
+            isModern = false
         )
 
         Spacer(modifier = Modifier.height(MimikyuSpacing.sm))
@@ -706,15 +610,15 @@ fun FullScreenControls(
             }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(28.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 MimikyuIconButton(onClick = onPlayPrevious, style = MimikyuPress.Transport) {
                     Icon(
                         painter = painterResource(MimikyuIcons.SkipPrevious),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(46.dp)
+                        contentDescription = "Previous",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
                     )
                 }
 
@@ -738,38 +642,34 @@ fun FullScreenControls(
                     buttonAlpha.animateTo(1f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
                 }
 
-                Box(
+                FloatingActionButton(
+                    onClick = {
+                        clickTrigger++
+                        onTogglePlay()
+                    },
+                    containerColor = Color.White,
+                    shape = CircleShape,
+                    interactionSource = playInteraction,
                     modifier = Modifier
                         .size(72.dp)
                         .graphicsLayer {
                             alpha = buttonAlpha.value
                         }
-                        .background(Color.White, CircleShape)
-                        .clip(CircleShape)
-                        .clickable(
-                            interactionSource = playInteraction,
-                            indication = null,
-                            onClick = {
-                                clickTrigger++
-                                onTogglePlay()
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        painter = painterResource(if (isPlaying) MimikyuIcons.Pause else MimikyuIcons.Play),
+                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
                         tint = Color.Black,
-                        modifier = Modifier.size(36.dp),
-                        contentDescription = null
+                        modifier = Modifier.size(42.dp)
                     )
                 }
 
                 MimikyuIconButton(onClick = onPlayNext, style = MimikyuPress.Transport) {
                     Icon(
                         painter = painterResource(MimikyuIcons.SkipNext),
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(46.dp)
+                        contentDescription = "Next",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
                     )
                 }
             }

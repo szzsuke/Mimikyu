@@ -51,6 +51,8 @@ fun FullScreenLyricsView(
     isLoading: Boolean,
     title: String,
     artist: String,
+    coverUrl: String? = null,
+    chorusStartMs: Long? = null,
     base: Color,
     highlightColor: Color,
     onSeek: (Long) -> Unit,
@@ -220,6 +222,7 @@ fun FullScreenLyricsView(
             FullScreenLyricsHeader(
                 title = title,
                 artist = artist,
+                coverUrl = coverUrl,
                 onClose = onClose,
                 onMoreClick = onMoreClick,
                 onDragDelta = { delta -> dragState.onHeaderDrag(delta) },
@@ -268,7 +271,8 @@ fun FullScreenLyricsView(
                 hasRoma = hasRoma,
                 onToggleSecondaryMode = handleToggleSecondaryMode,
                 onShareLyrics = onShareLyrics ?: handleShareLyrics,
-                onLyricsSettingsClick = { showSettingsSheet = true }
+                onLyricsSettingsClick = { showSettingsSheet = true },
+                chorusStartMs = chorusStartMs
             )
         }
 

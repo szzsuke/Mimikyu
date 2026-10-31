@@ -24,6 +24,18 @@ import com.lin0721.linmusic.core.ui.theme.MimikyuPress
 import com.lin0721.linmusic.core.ui.theme.InfoCardRadius
 import com.lin0721.linmusic.core.ui.theme.TextGray
 import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
+import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lin0721.linmusic.core.download.SongDownloadManager
+import com.lin0721.linmusic.core.download.DownloadPreferences
+import com.lin0721.linmusic.core.download.SongDownloadWorker
+import com.lin0721.linmusic.core.ui.components.ToastManager
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
+import org.koin.compose.koinInject
+
 
 // ：、Lyrics、PlayQueue
 // connectedDevice Current（/），、，；Play
@@ -31,11 +43,13 @@ import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
 fun ActionButtons(
     onOutputDeviceClick: () -> Unit,
     onQueueClick: () -> Unit,
-    onShareClick: () -> Unit,
+    onShareClick: () -> Unit = {},
     onOpenFullScreenLyrics: () -> Unit = onShareClick,
     connectedDevice: AudioDeviceInfo? = null,
     isModern: Boolean = false,
-    onMoreClick: () -> Unit = {}
+    onMoreClick: () -> Unit = {},
+    currentSongId: Long = 0L,
+    onDownloadClick: () -> Unit = {}
 ) {
     if (isModern) {
         val devicePrimary = MaterialTheme.colorScheme.primary
@@ -87,6 +101,12 @@ fun ActionButtons(
                         modifier = Modifier.size(20.dp)
                     )
                 }
+                PlayerDownloadButton(
+                    songId = currentSongId,
+                    onDownloadClick = onDownloadClick,
+                    tint = Color.White.copy(alpha = 0.85f),
+                    size = 20.dp
+                )
                 MimikyuIconButton(onClick = onQueueClick) {
                     Icon(
                         painter = androidx.compose.ui.res.painterResource(com.lin0721.linmusic.core.ui.theme.MimikyuIcons.Queue),
@@ -137,15 +157,13 @@ fun ActionButtons(
                     )
                 }
             }
-            Row {
-                MimikyuIconButton(onClick = onShareClick) {
-                    Icon(
-                        painter = androidx.compose.ui.res.painterResource(com.lin0721.linmusic.core.ui.theme.MimikyuIcons.Share),
-                        contentDescription = "Share",
-                        tint = TextGray,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PlayerDownloadButton(
+                    songId = currentSongId,
+                    onDownloadClick = onDownloadClick,
+                    tint = TextGray,
+                    size = 24.dp
+                )
                 MimikyuIconButton(
                     onClick = onQueueClick,
                     modifier = Modifier.offset(x = 12.dp)
@@ -158,6 +176,74 @@ fun ActionButtons(
                     )
                 }
             }
+        }
+    }
+}
+
+
+@Composable
+fun PlayerDownloadButton(
+    songId: Long,
+    onDownloadClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White.copy(alpha = 0.85f),
+    size: androidx.compose.ui.unit.Dp = 22.dp
+) {
+    val songDownloadManager: SongDownloadManager = koinInject()
+    val downloadPreferences: DownloadPreferences = koinInject()
+
+    val records by downloadPreferences.records.collectAsStateWithLifecycle(initialValue = emptyList())
+    val isDownloaded = remember(records, songId) {
+        songId > 0 && records.any { it.songId == songId }
+    }
+
+    val workInfos by songDownloadManager.observeSingle(songId)
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+
+    val isDownloading = remember(workInfos) {
+        workInfos.any {
+            it.state == androidx.work.WorkInfo.State.RUNNING ||
+            it.state == androidx.work.WorkInfo.State.ENQUEUED
+        }
+    }
+
+    var justClickedDownload by remember(songId) { mutableStateOf(false) }
+
+    LaunchedEffect(isDownloaded) {
+        if (isDownloaded) {
+            justClickedDownload = false
+        }
+    }
+
+    val activeDownloading = (isDownloading || justClickedDownload) && !isDownloaded
+
+    MimikyuIconButton(
+        onClick = {
+            if (isDownloaded) {
+                ToastManager.showToast("Song already downloaded")
+            } else if (activeDownloading) {
+                ToastManager.showToast("Downloading...")
+            } else {
+                justClickedDownload = true
+                onDownloadClick()
+            }
+        },
+        modifier = modifier
+    ) {
+        if (isDownloaded) {
+            Icon(
+                painter = androidx.compose.ui.res.painterResource(com.lin0721.linmusic.core.ui.theme.MimikyuIcons.DownloadDone),
+                contentDescription = "Downloaded",
+                tint = MimikyuPink,
+                modifier = Modifier.size(size)
+            )
+        } else {
+            Icon(
+                painter = androidx.compose.ui.res.painterResource(com.lin0721.linmusic.core.ui.theme.MimikyuIcons.Download),
+                contentDescription = if (activeDownloading) "Downloading" else "Download",
+                tint = if (activeDownloading) MimikyuPink else tint,
+                modifier = Modifier.size(size)
+            )
         }
     }
 }

@@ -90,7 +90,47 @@ class HomeRepositoryImpl(
             return@withContext fetchCuratedDiscoverShelves()
         }
 
-        val ytmShelves = homeResult.sections.mapIndexedNotNull { index, section ->
+        val allSections = mutableListOf<com.metrolist.innertube.pages.HomePage.Section>()
+        allSections.addAll(homeResult.sections)
+
+        // Fetch continuations to get MORE ROWS for mixes and personalization from YouTube profile
+        var continuation = homeResult.continuation
+        var pagesLoaded = 0
+        while (!continuation.isNullOrBlank() && pagesLoaded < 3) {
+            val nextResult = runCatching { YouTube.home(continuation = continuation).getOrNull() }.getOrNull()
+            if (nextResult != null && nextResult.sections.isNotEmpty()) {
+                allSections.addAll(nextResult.sections)
+                continuation = nextResult.continuation
+                pagesLoaded++
+            } else {
+                break
+            }
+        }
+
+        val resultShelves = mutableListOf<HomeShelf>()
+
+        // 1. Fetch user's personalized mixes and playlists from YouTube Music Library
+        runCatching {
+            val libraryResult = YouTube.library("FEmusic_liked_playlists").getOrNull()
+                ?: YouTube.library("FEmusic_library_landing").getOrNull()
+            if (libraryResult != null) {
+                val mixCards = libraryResult.items.filterIsInstance<PlaylistItem>()
+                    .filterNot { it.id == "LM" || it.id.endsWith("VLLM") || it.id == "SE" || it.id.endsWith("VLSE") }
+                    .mapNotNull { it.toCuratedPlaylistCard() }
+                if (mixCards.isNotEmpty()) {
+                    resultShelves.add(
+                        HomeShelf(
+                            blockCode = "ytm_user_mixes",
+                            title = "Your Mixes & Playlists",
+                            cards = mixCards
+                        )
+                    )
+                }
+            }
+        }
+
+        // 2. Map all home sections (Mixed for you, Listen again, Quick picks, etc.)
+        val mappedShelves = allSections.mapIndexedNotNull { index, section ->
             val title = cleanMetadataText(section.title).trim()
             if (title.isBlank()) return@mapIndexedNotNull null
 
@@ -103,10 +143,11 @@ class HomeRepositoryImpl(
                 cards = cards
             )
         }
+        resultShelves.addAll(mappedShelves)
 
-        if (ytmShelves.isNotEmpty()) {
-            AppLogger.d(TAG, "Loaded ${ytmShelves.size} personalized YouTube Music shelves for home feed")
-            ytmShelves
+        if (resultShelves.isNotEmpty()) {
+            AppLogger.d(TAG, "Loaded ${resultShelves.size} personalized YouTube Music shelves (including continuations and library mixes)")
+            resultShelves
         } else {
             fetchCuratedDiscoverShelves()
         }

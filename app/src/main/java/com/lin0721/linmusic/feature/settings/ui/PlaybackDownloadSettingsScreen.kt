@@ -84,6 +84,7 @@ fun PlaybackDownloadSettingsView(viewModel: SettingsViewModel) {
     val playWithOtherApps by viewModel.playWithOtherApps.collectAsStateWithLifecycle()
     val resumeAfterExternalInterruption by viewModel.resumeAfterExternalInterruption.collectAsStateWithLifecycle()
     val crossfadeEnabled by viewModel.crossfadeEnabled.collectAsStateWithLifecycle()
+    val automixEnabled by viewModel.automixEnabled.collectAsStateWithLifecycle()
     val crossfadeDurationMs by viewModel.crossfadeDurationMs.collectAsStateWithLifecycle()
     val streamCacheEnabled by viewModel.streamCacheEnabled.collectAsStateWithLifecycle()
     val downloadFolderUri by viewModel.downloadFolderUri.collectAsStateWithLifecycle()
@@ -143,32 +144,68 @@ fun PlaybackDownloadSettingsView(viewModel: SettingsViewModel) {
                     onCheckedChange = { viewModel.updateCrossfadeEnabled(it) }
                 )
                 if (crossfadeEnabled) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    SettingsSwitchRow(
+                        title = "Automix (Smart Transitions)",
+                        subtitle = "Beat-align, trim silence, and perform midpoint bass swap between songs like Apple Music & Spotify",
+                        checked = automixEnabled,
+                        onCheckedChange = { viewModel.updateAutomixEnabled(it) }
+                    )
+                    if (automixEnabled) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp)
                         ) {
-                            Text("Transition Duration", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Automix Blend Mode", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
+                                Text(
+                                    text = "Smart (Dynamic 4-8 Bars)",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "${crossfadeDurationMs} ms",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
+                                text = "Transitions adapt dynamically to tempo, phrase structure, and silence boundaries with seamless bass handover.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp
                             )
                         }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        LyricCapsuleSlider(
-                            value = crossfadeDurationMs,
-                            onValueChange = { viewModel.updateCrossfadeDurationMs(CrossfadePolicy.normalizeDurationMs(it)) },
-                            valueRange = CrossfadePolicy.MIN_DURATION_MS.toFloat()..CrossfadePolicy.MAX_DURATION_MS.toFloat(),
-                            startLabel = "Short",
-                            endLabel = "Long"
-                        )
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Manual Transition Duration", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp)
+                                Text(
+                                    text = "${crossfadeDurationMs} ms",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LyricCapsuleSlider(
+                                value = crossfadeDurationMs,
+                                onValueChange = { viewModel.updateCrossfadeDurationMs(CrossfadePolicy.normalizeDurationMs(it)) },
+                                valueRange = CrossfadePolicy.MIN_DURATION_MS.toFloat()..CrossfadePolicy.MAX_DURATION_MS.toFloat(),
+                                startLabel = "Short",
+                                endLabel = "Long"
+                            )
+                        }
                     }
                 }
 

@@ -501,9 +501,9 @@ class ExternalLyricsService(
                                     }
                                 }
                             }
-                            val stitchedWords = LyricParser.stitchSyllableGaps(words)
                             val cleanText = LyricParser.fixWordGaps(text)
-                            lines.add(LyricLine(timeMs = timeMs, durationMs = durMs, text = cleanText, isSynced = true, words = stitchedWords))
+                            val alignedWords = if (words.isNotEmpty()) LyricParser.alignWordsWithLineText(words, cleanText) else emptyList()
+                            lines.add(LyricLine(timeMs = timeMs, durationMs = durMs, text = cleanText, isSynced = true, words = alignedWords))
                         }
                         if (isValidLyrics(lines) && !hasLanguageMismatch(title, artist, lines) && lines.any { it.words.isNotEmpty() }) {
                             AppLogger.i(TAG, "YouLyPlus Priority word-synced JSON hit for '$candTitle' by '$candArtist' (${lines.size} lines)")
@@ -1512,9 +1512,13 @@ class ExternalLyricsService(
             if (line.isGap) {
                 line
             } else {
-                val stitched = LyricParser.stitchSyllableGaps(line.words)
                 val fixedText = LyricParser.fixWordGaps(line.text)
-                line.copy(text = fixedText, words = stitched)
+                val alignedWords = if (line.words.isNotEmpty()) {
+                    LyricParser.alignWordsWithLineText(line.words, fixedText)
+                } else {
+                    emptyList()
+                }
+                line.copy(text = fixedText, words = alignedWords)
             }
         }
     }

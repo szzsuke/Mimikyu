@@ -217,71 +217,24 @@ private fun DailyMixCoverContent(
     topColor: Color,
     bottomColor: Color
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Top Split: Vibrant Color Block with Title
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.68f)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(topColor, topColor.copy(alpha = 0.85f))
-                    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(topColor, bottomColor)
                 )
-                .padding(horizontal = 10.dp, vertical = 8.dp)
-        ) {
-            // Waveform indicator
-            Icon(
-                imageVector = Icons.Rounded.GraphicEq,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier
-                    .size(24.dp)
-                    .align(Alignment.TopEnd)
             )
-
-            Column(
-                modifier = Modifier.align(Alignment.BottomStart)
-            ) {
-                Text(
-                    text = "OCTOBER",
-                    color = Color.White.copy(alpha = 0.65f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.2.sp
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = title.uppercase(),
-                    color = Color.White,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Black,
-                    lineHeight = 20.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-
-        // Bottom Split: Dark Contrast Bar with Artist names
-        Box(
+            .padding(10.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.GraphicEq,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.5f),
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.32f)
-                .background(bottomColor)
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Text(
-                text = if (artists.isNotBlank()) artists else "Personalized for you",
-                color = Color.White.copy(alpha = 0.85f),
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+                .size(24.dp)
+                .align(Alignment.TopEnd)
+        )
     }
 }
 
@@ -301,53 +254,14 @@ private fun TopChartsCoverContent(
             )
             .padding(12.dp)
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "OCTOBER CHARTS",
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
-                Icon(
-                    imageVector = Icons.Rounded.GraphicEq,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            Column {
-                Text(
-                    text = title.uppercase(),
-                    color = Color.White,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Black,
-                    lineHeight = 22.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (subtitle.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = subtitle,
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Normal,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
+        Icon(
+            imageVector = Icons.Rounded.GraphicEq,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.6f),
+            modifier = Modifier
+                .size(18.dp)
+                .align(Alignment.TopEnd)
+        )
     }
 }
 
@@ -403,96 +317,16 @@ private fun RadioCoverContent(
             .padding(10.dp)
     ) {
         // Top Header: October icon + "RADIO" tag
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.GraphicEq,
-                contentDescription = null,
-                tint = Color(0xFF191414).copy(alpha = 0.7f),
-                modifier = Modifier.size(16.dp)
-            )
-            Text(
-                text = "RADIO",
-                color = Color(0xFF191414),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 1.2.sp
-            )
-        }
-
-        // Center Area: 3 circular artist cutouts
-        Box(
+        Icon(
+            imageVector = Icons.Rounded.GraphicEq,
+            contentDescription = null,
+            tint = Color(0xFF191414).copy(alpha = 0.7f),
             modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth()
-                .height(80.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val leftImg = sideCovers.getOrNull(0) ?: centerCover
-            val rightImg = sideCovers.getOrNull(1) ?: centerCover
-
-            // Left Circle
-            if (leftImg.isNotBlank()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(leftImg)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .offset(x = (-34).dp)
-                        .size(44.dp)
-                        .clip(CircleShape)
-                )
-            }
-
-            // Right Circle
-            if (rightImg.isNotBlank()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(rightImg)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .offset(x = 34.dp)
-                        .size(44.dp)
-                        .clip(CircleShape)
-                )
-            }
-
-            // Center Circle (dominant)
-            if (centerCover.isNotBlank()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(centerCover)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = artistName,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(62.dp)
-                        .clip(CircleShape)
-                        .border(2.dp, backgroundColor, CircleShape)
-                )
-            }
-        }
-
-        // Bottom Artist Name
-        Text(
-            text = artistName,
-            color = Color(0xFF121212),
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.align(Alignment.BottomStart)
+                .size(16.dp)
+                .align(Alignment.TopEnd)
         )
+
+
     }
 }
 
@@ -502,74 +336,20 @@ private fun ThisIsCoverContent(
     artistCover: String,
     accentColor: Color
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Top White Bar: THIS IS
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.28f)
-                .background(Color.White)
-                .padding(horizontal = 8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.GraphicEq,
-                    contentDescription = null,
-                    tint = Color.Black.copy(alpha = 0.6f),
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = "THIS IS",
-                    color = Color.Black,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.4.sp
-                )
-                Spacer(modifier = Modifier.size(14.dp))
-            }
-        }
-
-        // Center Artist Portrait
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.48f)
-                .background(Color(0xFF202020))
-        ) {
-            if (artistCover.isNotBlank()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(artistCover)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = artistName,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
-
-        // Bottom Accent Band with Artist Name
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.24f)
-                .background(accentColor)
-                .padding(horizontal = 8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = artistName,
-                color = Color.Black,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF202020))
+    ) {
+        if (artistCover.isNotBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(artistCover)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = artistName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
             )
         }
     }
@@ -615,36 +395,6 @@ private fun VibeMixCoverContent(
                 .align(Alignment.TopStart)
         )
 
-        // Floating Bottom Banner
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 8.dp, vertical = 8.dp)
-                .height(24.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(Color.White)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(5.dp)
-                        .background(accentColor)
-                )
-                Text(
-                    text = mixTitle,
-                    color = Color(0xFF121212),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 6.dp)
-                )
-            }
-        }
+
     }
 }

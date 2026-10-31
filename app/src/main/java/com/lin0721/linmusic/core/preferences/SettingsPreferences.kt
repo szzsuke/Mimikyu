@@ -64,8 +64,10 @@ class SettingsPreferences(private val context: Context) {
         private val KEY_PLAY_WITH_OTHER_APPS = booleanPreferencesKey("play_with_other_apps")
         // Resume after external audio stops， true
         private val KEY_RESUME_AFTER_EXTERNAL_INTERRUPTION = booleanPreferencesKey("resume_after_external_interruption")
-        // ， false
+        // Crossfade enabled, false
         private val KEY_CROSSFADE_ENABLED = booleanPreferencesKey("crossfade_enabled")
+        // Automix (smart transitions like Apple Music/Spotify), default true
+        private val KEY_AUTOMIX_ENABLED = booleanPreferencesKey("automix_enabled")
         // (ms), default 3000
         private val KEY_CROSSFADE_DURATION_MS = intPreferencesKey("crossfade_duration_ms")
         // Play， "loop" ()
@@ -277,12 +279,23 @@ class SettingsPreferences(private val context: Context) {
 
     // Flow
     val crossfadeEnabled: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
-        prefs[KEY_CROSSFADE_ENABLED] ?: false
+        prefs[KEY_CROSSFADE_ENABLED] ?: true
     }
 
     suspend fun saveCrossfadeEnabled(enabled: Boolean) {
         context.settingsDataStore.edit { prefs ->
             prefs[KEY_CROSSFADE_ENABLED] = enabled
+        }
+    }
+
+    // Automix (Smart Transitions) Flow
+    val automixEnabled: Flow<Boolean> = context.settingsDataStore.data.map { prefs ->
+        prefs[KEY_AUTOMIX_ENABLED] ?: true
+    }
+
+    suspend fun saveAutomixEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_AUTOMIX_ENABLED] = enabled
         }
     }
 

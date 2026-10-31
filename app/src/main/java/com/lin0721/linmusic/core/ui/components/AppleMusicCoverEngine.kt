@@ -444,33 +444,5 @@ private fun EditorialTitleOverlay(
     badge: String,
     textColor: Color
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(14.dp)
-    ) {
-        // Top Category Badge
-        Text(
-            text = badge.uppercase(),
-            color = textColor.copy(alpha = 0.85f),
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.5.sp,
-            modifier = Modifier.align(Alignment.TopStart)
-        )
-
-        // Center / Bottom Bold Title
-        Text(
-            text = title,
-            color = textColor,
-            fontSize = 19.sp,
-            lineHeight = 22.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-        )
-    }
+    // Intentionally empty: removed playlist title and category banner overlay from playlist cover art
 }

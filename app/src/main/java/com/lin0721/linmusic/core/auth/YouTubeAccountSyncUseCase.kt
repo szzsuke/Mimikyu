@@ -40,28 +40,19 @@ class YouTubeAccountSyncUseCase(
             if (!session.dataSyncId.isNullOrBlank()) YouTube.dataSyncId = session.dataSyncId
             if (!session.authUser.isNullOrBlank()) YouTube.authUser = session.authUser
 
-            // 2. Sync Account Profile
-            runCatching {
-                val account = YouTube.accountInfo().getOrNull()
-                if (account != null) {
-                    val profile = UserProfile(
-                        uid = 1L,
-                        nickname = account.name.ifBlank { "YouTube Music User" },
-                        avatarUrl = account.thumbnailUrl.orEmpty(),
-                        username = account.channelHandle.orEmpty()
-                    )
-                    userPreferences.saveUserProfile(profile, markAuthenticated = true)
-                    AppLogger.d(TAG, "Synced account profile: ${account.name}")
-                }
-            }.onFailure { AppLogger.w(TAG, "Failed to sync account info", it) }
+            // 2. Never sync or overwrite user profile with YouTube Music info per user requirement
 
-            // 3. Sync Liked Songs ("LM")
+            // 3. Sync Liked Songs ("LM") - Union old liked songs with YouTube Music liked songs
             runCatching {
                 val likedPage = YouTube.playlist("LM").getOrNull()
                 if (likedPage != null && likedPage.songs.isNotEmpty()) {
-                    val tracks = likedPage.songs.map { it.toTrack(metadataEnricher) }
-                    userPreferences.saveLikedTracks(tracks)
-                    AppLogger.d(TAG, "Synced ${tracks.size} liked songs from YouTube Music")
+                    val ytTracks = likedPage.songs.map { it.toTrack(metadataEnricher) }
+                    val currentLiked = userPreferences.likedTracks.firstOrNull().orEmpty()
+                    val mergedTracks = (currentLiked + ytTracks).distinctBy {
+                        if (it.id > 0L) it.id else "${it.name.lowercase().trim()}_${it.ar.firstOrNull()?.name?.lowercase()?.trim()}"
+                    }
+                    userPreferences.saveLikedTracks(mergedTracks)
+                    AppLogger.d(TAG, "Merged ${currentLiked.size} old liked songs with ${ytTracks.size} YouTube liked songs (total ${mergedTracks.size})")
                 }
             }.onFailure { AppLogger.w(TAG, "Failed to sync liked songs", it) }
 

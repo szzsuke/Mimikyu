@@ -114,44 +114,6 @@ fun HomeContent(
             )
         ) {
             // ────────────────────────────────────────────────────────────────
-            // 1. FIRST SHELF: "Recents" (Spotify-accurate last 10 songs)
-            // ────────────────────────────────────────────────────────────────
-            item(key = "shelf_recent_header") {
-                RecentShelfHeader(
-                    hasSongs = last10Recent.isNotEmpty(),
-                    onNavigateToHistory = onNavigateToRecentPlay
-                )
-            }
-
-            item(key = "shelf_recent_content") {
-                if (last10Recent.isNotEmpty()) {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(last10Recent, key = { "recent_${it.track.id}_${it.playedAt}" }) { record ->
-                            val track = record.track
-                            val isCurrent = currentTrackId == track.id.toString() ||
-                                currentTrackId == com.lin0721.linmusic.core.player.innertube.YouTubeIdRegistry.getVideoId(track.id)
-                            RecentTrackCard(
-                                track = track,
-                                isPlaying = isPlaying && isCurrent,
-                                isCurrent = isCurrent,
-                                onClick = { onTrackClick(track) }
-                            )
-                        }
-                    }
-                } else {
-                    RecentEmptyCard(onSearchClick = onSearchClick)
-                }
-            }
-
-            item(key = "spacer_after_recent") {
-                Spacer(modifier = Modifier.height(28.dp))
-            }
-
-            // ────────────────────────────────────────────────────────────────
             // 2. SHELF: "Your Playlists"
             // Card 1: Liked Songs (exact same picture and style as Library)
             // Cards 2+: User's playlists sorted by listening frequency
@@ -217,19 +179,53 @@ fun HomeContent(
                             )
                         }
 
-                        item(key = "connect_spotify") {
-                            BlankConnectPlaylistCard(
-                                title = "Spotify",
-                                subtitle = "Connect account",
-                                iconRes = R.drawable.ic_spotify_minimal,
-                                onClick = onConnectSpotifyClick
-                            )
-                        }
+
+
                     }
                 }
             }
 
             // ────────────────────────────────────────────────────────────────
+
+            // 1. FIRST SHELF: "Recents" (Spotify-accurate last 10 songs)
+            // ────────────────────────────────────────────────────────────────
+            item(key = "shelf_recent_header") {
+                RecentShelfHeader(
+                    hasSongs = last10Recent.isNotEmpty(),
+                    onNavigateToHistory = onNavigateToRecentPlay
+                )
+            }
+
+            item(key = "shelf_recent_content") {
+                if (last10Recent.isNotEmpty()) {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(last10Recent, key = { "recent_${it.track.id}_${it.playedAt}" }) { record ->
+                            val track = record.track
+                            val isCurrent = currentTrackId == track.id.toString() ||
+                                currentTrackId == com.lin0721.linmusic.core.player.innertube.YouTubeIdRegistry.getVideoId(track.id)
+                            RecentTrackCard(
+                                track = track,
+                                isPlaying = isPlaying && isCurrent,
+                                isCurrent = isCurrent,
+                                onClick = { onTrackClick(track) }
+                            )
+                        }
+                    }
+                } else {
+                    RecentEmptyCard(onSearchClick = onSearchClick)
+                }
+            }
+
+            item(key = "spacer_after_recent") {
+                Spacer(modifier = Modifier.height(28.dp))
+            }
+
+            // ────────────────────────────────────────────────────────────────
+
             // 3. THE 8 CURATED DISCOVER SHELVES:
             // 1. Made For You
             // 2. New Releases

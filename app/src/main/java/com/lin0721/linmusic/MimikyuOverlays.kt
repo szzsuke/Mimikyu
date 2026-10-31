@@ -143,7 +143,7 @@ fun MimikyuBottomOverlay(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 // Download
                 AnimatedVisibility(
-                    visible = !isLoginScreenVisible && !isMvFullscreen,
+                    visible = false,
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut(),
                     modifier = Modifier.fillMaxWidth()

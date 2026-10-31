@@ -36,6 +36,7 @@ fun KaraokeBreathingDots(
     modifier: Modifier = Modifier,
     defaults: KaraokeBreathingDotsDefaults = KaraokeBreathingDotsDefaults(),
     trailingSpacing: Dp = 0.dp,
+    horizontalPadding: Dp = 16.dp,
     lineHeight: Dp = 40.dp,
 ) {
     var frameTimeMs by remember { mutableIntStateOf(currentTimeProvider()) }
@@ -66,7 +67,7 @@ fun KaraokeBreathingDots(
                     placeable.place(0, 0)
                 }
             }
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = horizontalPadding)
             // Part of the collapsing content, so hidden dots leave no residual list gap.
             .padding(bottom = trailingSpacing.coerceAtLeast(0.dp))
             .height(lineHeight.coerceAtLeast(diameter))

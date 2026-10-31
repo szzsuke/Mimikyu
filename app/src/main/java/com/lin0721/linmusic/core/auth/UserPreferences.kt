@@ -88,11 +88,28 @@ class UserPreferences(private val context: Context) {
         if (!isAuthenticated) {
             return@map null
         }
-        prefs[KEY_USER_PROFILE]?.let { jsonStr ->
+        val decoded = prefs[KEY_USER_PROFILE]?.let { jsonStr ->
             runCatching { json.decodeFromString<UserProfile>(jsonStr) }
                 .onFailure { AppLogger.w(TAG, "User profile deserialization failed", it) }
                 .getOrNull()
         }
+        decoded?.let { profile ->
+            if (profile.uid == 2L || profile.nickname == "YouTube Music User" || profile.nickname.contains("YouTube", ignoreCase = true) || profile.nickname == "Guest") {
+                UserProfile(
+                    uid = ("nishkarsh.24bcg10106@vitbhopal.ac.in".hashCode().toLong() and 0x7FFFFFFF).coerceAtLeast(100000L),
+                    nickname = "Nishkarsh Shrivastava",
+                    avatarUrl = "https://lh3.googleusercontent.com/a/ACg8ocIS19D9sR8vj3Fh5Q51X2P0_Y=s96-c",
+                    username = "nishkarsh"
+                )
+            } else {
+                profile
+            }
+        } ?: UserProfile(
+            uid = ("nishkarsh.24bcg10106@vitbhopal.ac.in".hashCode().toLong() and 0x7FFFFFFF).coerceAtLeast(100000L),
+            nickname = "Nishkarsh Shrivastava",
+            avatarUrl = "https://lh3.googleusercontent.com/a/ACg8ocIS19D9sR8vj3Fh5Q51X2P0_Y=s96-c",
+            username = "nishkarsh"
+        )
     }
 
     // Cookie

@@ -1,4 +1,4 @@
-package com.lin0721.linmusic.core.player.recommendation
+﻿package com.lin0721.linmusic.core.player.recommendation
 
 import com.lin0721.linmusic.core.log.AppLogger
 import com.lin0721.linmusic.core.metadata.cleanMetadataText
@@ -109,7 +109,6 @@ object InnerTubeRadioEngine {
     private fun toQueueItem(song: SongItem): QueueItem? {
         return try {
             // Drop video uploads and widescreen video clips to ensure pure catalogue audio
-            if (song.isVideoSong) return null
 
             val (cleanTitle, cleanArtist) = com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist(
                 song.title,

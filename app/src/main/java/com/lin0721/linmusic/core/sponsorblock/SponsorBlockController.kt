@@ -30,7 +30,7 @@ class SponsorBlockController(
         val rawVid = explicitVideoId?.takeIf { it.isNotBlank() } ?: (if (songId > 0L) YouTubeIdRegistry.getVideoId(songId) else null)
         val cleanVid = YouTubeIdRegistry.sanitizeVideoId(rawVid)
 
-        if (cleanVid.length != 11) {
+        if (cleanVid.isBlank()) {
             AppLogger.d(TAG, "SponsorBlock: invalid or missing videoId '$cleanVid' for songId=$songId")
             return
         }

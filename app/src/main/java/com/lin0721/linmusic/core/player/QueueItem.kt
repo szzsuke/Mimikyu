@@ -1,4 +1,4 @@
-package com.lin0721.linmusic.core.player
+﻿package com.lin0721.linmusic.core.player
 
 import android.net.Uri
 import android.os.Bundle
@@ -23,7 +23,8 @@ data class QueueItem(
     val videoId: String? = null,
     val album: String? = null,
     val durationSec: Int = 0,
-    val uniqueQueueId: String = java.util.UUID.randomUUID().toString()
+    val uniqueQueueId: String = java.util.UUID.randomUUID().toString(),
+    val isVideo: Boolean = false
 ) {
     /**
      * Resolves the effective YouTube Video ID for this item, falling back to registry if needed.

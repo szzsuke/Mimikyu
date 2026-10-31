@@ -201,4 +201,103 @@ class LyricParserTest {
         assertEquals("tomorrow ", lines[0].words[4].text)
         assertEquals("day", lines[0].words[5].text)
     }
+
+    @Test
+    fun `TTML解析mama与baby多音节跨标签缝合`() {
+        val ttml = """
+            <tt xmlns="http://www.w3.org/ns/ttml">
+              <body>
+                <div>
+                  <p begin="00:01.000" end="00:04.000">
+                    <span begin="00:01.000" end="00:01.500">ma</span>
+                    <span begin="00:01.500" end="00:02.000">ma, </span>
+                    <span begin="00:02.000" end="00:02.500">just </span>
+                    <span begin="00:02.500" end="00:03.000">killed </span>
+                    <span begin="00:03.000" end="00:03.500">a </span>
+                    <span begin="00:03.500" end="00:04.000">man</span>
+                  </p>
+                </div>
+              </body>
+            </tt>
+        """.trimIndent()
+        val lines = LyricParser.parseTtml(ttml)
+        assertEquals(1, lines.size)
+        assertEquals("mama, just killed a man", lines[0].text)
+        assertEquals("ma", lines[0].words[0].text)
+        assertEquals("ma, ", lines[0].words[1].text)
+        assertEquals("just ", lines[0].words[2].text)
+        assertEquals("killed ", lines[0].words[3].text)
+        assertEquals("a ", lines[0].words[4].text)
+        assertEquals("man", lines[0].words[5].text)
+    }
+
+    @Test
+    fun `alignWordsWithLineText将音节与完整行文本完美对齐`() {
+        val rawWords = listOf(
+            WordInfo("to ", 0, 200),
+            WordInfo("ge ", 200, 200),
+            WordInfo("ther ", 400, 200),
+            WordInfo("for ", 600, 200),
+            WordInfo("e ", 800, 200),
+            WordInfo("ver ", 1000, 200)
+        )
+        val aligned = LyricParser.alignWordsWithLineText(rawWords, "Together forever")
+        assertEquals(6, aligned.size)
+        assertEquals("to", aligned[0].text)
+        assertEquals("ge", aligned[1].text)
+        assertEquals("ther ", aligned[2].text)
+        assertEquals("for", aligned[3].text)
+        assertEquals("e", aligned[4].text)
+        assertEquals("ver", aligned[5].text)
+    }
+
+    @Test
+    fun `fixWordGaps修复所有常见拆分单词`() {
+        assertEquals("mama, just killed a man", LyricParser.fixWordGaps("ma ma, just killed a man"))
+        assertEquals("baby, I love you", LyricParser.fixWordGaps("ba by, I love you"))
+        assertEquals("together forever", LyricParser.fixWordGaps("to ge ther for e ver"))
+        assertEquals("beautiful happiness", LyricParser.fixWordGaps("beau ti ful hap pi ness"))
+        assertEquals("dancing in the rain", LyricParser.fixWordGaps("danc ing in the rain"))
+        assertEquals("singer walked slowly", LyricParser.fixWordGaps("sing er walk ed slow ly"))
+        assertEquals("music is my life", LyricParser.fixWordGaps("mu sic is my life"))
+        assertEquals("water falling down", LyricParser.fixWordGaps("wa ter fall ing down"))
+        assertEquals("mama couldn't afford it", LyricParser.fixWordGaps("ma ma couldn't afford it"))
+        assertEquals("baby couldn't cry", LyricParser.fixWordGaps("ba by couldn't cry"))
+        assertEquals("yo mama said", LyricParser.fixWordGaps("yo mama said"))
+        assertEquals("kinda sorta wanna", LyricParser.fixWordGaps("kin da sor ta wan na"))
+    }
+
+    @Test
+    fun testExcuseMeAndFormattedTtmlIndentation() {
+        val ttml = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <tt xmlns="http://www.w3.org/ns/ttml">
+              <body>
+                <div>
+                  <p begin="00:01.000" end="00:04.000">
+                    <span begin="00:01.000" end="00:01.300">Ex</span>
+                    <span begin="00:01.300" end="00:01.600">cuse </span>
+                    <span begin="00:01.600" end="00:01.900">me, </span>
+                    <span begin="00:01.900" end="00:02.100">was </span>
+                    <span begin="00:02.100" end="00:02.400">you </span>
+                    <span begin="00:02.400" end="00:02.700">say</span>
+                    <span begin="00:02.700" end="00:03.000">ing </span>
+                    <span begin="00:03.000" end="00:03.400">some</span>
+                    <span begin="00:03.400" end="00:04.000">thing?</span>
+                  </p>
+                </div>
+              </body>
+            </tt>
+        """.trimIndent()
+
+        val lines = LyricParser.parseTtml(ttml)
+        org.junit.Assert.assertEquals(1, lines.size)
+        org.junit.Assert.assertEquals("Excuse me, was you saying something?", lines[0].text)
+        org.junit.Assert.assertEquals("Ex", lines[0].words[0].text)
+        org.junit.Assert.assertEquals("cuse ", lines[0].words[1].text)
+        org.junit.Assert.assertEquals("say", lines[0].words[5].text)
+        org.junit.Assert.assertEquals("ing ", lines[0].words[6].text)
+        org.junit.Assert.assertEquals("some", lines[0].words[7].text)
+        org.junit.Assert.assertEquals("thing?", lines[0].words[8].text)
+    }
 }

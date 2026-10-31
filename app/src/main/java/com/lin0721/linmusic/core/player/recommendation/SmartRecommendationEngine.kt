@@ -1,4 +1,4 @@
-package com.lin0721.linmusic.core.player.recommendation
+﻿package com.lin0721.linmusic.core.player.recommendation
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
@@ -128,98 +128,53 @@ class SmartRecommendationEngine(
     }
 
     /**
+     * Loads a batch of AutoPlay tracks seeded by [seedTrack] using InnerTube RDAMVM radio + BitChord QueueBuilder.
+     *
+     * Port of BitChord's loadAutoplayTracks model:
+     * 1. Resolves canonical seed videoId.
+     * 2. Queries InnerTube algorithmic track radio.
+     * 3. Runs BitChord QueueBuilder: deduplicates audio/video recordings, caps artists, prefers audio cuts.
+     */
+    suspend fun getAutoplayBatch(
+        seedTrack: QueueItem,
+        activeQueue: List<QueueItem>,
+        limit: Int = BitChordQueueBuilder.MAX_QUEUED_AUTOPLAY
+    ): List<QueueItem> {
+        val seedSongId = seedTrack.songId
+        val seedVideoId = seedTrack.videoId?.takeIf { it.isNotBlank() }
+            ?: (if (seedSongId > 0) com.lin0721.linmusic.core.player.innertube.YouTubeIdRegistry.getVideoId(seedSongId) else null)
+            ?: InnerTubeRadioEngine.resolveVideoId(seedSongId, seedTrack.title, seedTrack.artist)
+
+        if (seedVideoId.isNullOrBlank()) {
+            return emptyList()
+        }
+
+        // 1. Fetch raw candidates from InnerTube RDAMVM radio graph
+        val candidates = InnerTubeRadioEngine.getRadioCandidates(seedVideoId, count = 30)
+        if (candidates.isEmpty()) {
+            return emptyList()
+        }
+
+        // 2. Extend queue using BitChord QueueBuilder (filters videos, enforces per-artist caps, deduplicates recordings)
+        return BitChordQueueBuilder.extend(
+            existing = activeQueue,
+            candidates = candidates,
+            limit = limit
+        )
+    }
+
+    /**
      * Determines the optimal next song to append to the playback queue.
-     * Uses hybrid collaborative similarity + user affinity ranking.
+     * Prefers BitChord AutoPlay model with fallback to collaborative similarity.
      */
     suspend fun getNextRecommendedTrack(
         currentTrack: QueueItem,
         activeQueue: List<QueueItem>,
         recentHistoryTracks: List<Track> = emptyList()
     ): QueueItem? {
-        val currentSongId = currentTrack.songId
-        if (currentSongId <= 0L) return null
-
-        val profile = loadProfile()
-        val existingSongIds = activeQueue.map { it.songId }.toSet()
-        val skippedIds = profile.recentSkippedSongIds.toSet()
-
-        // Discover related artists via Last.fm for higher semantic accuracy
-        val primaryArtist = currentTrack.artist.split(",", "/", "&").firstOrNull()?.trim() ?: currentTrack.artist
-        val lastFmSimilarArtists = if (primaryArtist.isNotBlank()) {
-            runCatching { lastFmRepository.getSimilarArtists(primaryArtist, limit = 10) }
-                .getOrDefault(emptyList())
-                .map { it.lowercase() }
-                .toSet()
-        } else emptySet()
-
-        // 1. Fetch similarity candidates for the currently playing song
-        val similarCandidates = mutableListOf<Track>()
-        try {
-            repository.getSimilarSongs(currentSongId).collect { result ->
-                result.onSuccess { tracks ->
-                    similarCandidates.addAll(tracks)
-                }
-            }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to query similar songs for songId=$currentSongId", e)
-        }
-
-        // 2. Filter out active queue and heavily skipped tracks
-        val eligibleCandidates = similarCandidates.filter { candidate ->
-            candidate.id != currentSongId &&
-            !existingSongIds.contains(candidate.id) &&
-            !skippedIds.contains(candidate.id)
-        }
-
-        // 3. Fallback: if similarity returned no new candidates, check recent history for preferred artists
-        val finalPool = if (eligibleCandidates.isNotEmpty()) {
-            eligibleCandidates
-        } else if (recentHistoryTracks.isNotEmpty()) {
-            recentHistoryTracks.filter { it.id != currentSongId && !existingSongIds.contains(it.id) }
-        } else {
-            emptyList()
-        }
-
-        if (finalPool.isEmpty()) return null
-
-        // 4. Rank candidates using composite metric:
-        // Score = BaseSimilarityRank + LastFmSimilarityBonus + ArtistAffinityBonus + PreferenceBonus
-        val scoredCandidates = finalPool.mapIndexed { index, track ->
-            val artistName = track.ar.firstOrNull()?.name ?: ""
-            val artistNameLower = artistName.lowercase()
-            val affinity = profile.artistAffinity[artistName] ?: 0f
-            val isPreferred = profile.preferredSongIds.contains(track.id)
-            val isLastFmSimilar = lastFmSimilarArtists.contains(artistNameLower) ||
-                    lastFmSimilarArtists.any { it.contains(artistNameLower) || artistNameLower.contains(it) }
-
-            // Earlier similar results get higher base similarity weight
-            val baseSimilarityWeight = (finalPool.size - index).toFloat()
-            val affinityWeight = affinity * 1.5f
-            val preferenceWeight = if (isPreferred) 5f else 0f
-            val lastFmWeight = if (isLastFmSimilar) 4.5f else 0f
-
-            val totalScore = baseSimilarityWeight + affinityWeight + preferenceWeight + lastFmWeight
-            track to totalScore
-        }
-
-        // Pick highest scoring track
-        val bestMatch = scoredCandidates.maxByOrNull { it.second }?.first ?: finalPool.first()
-        val bestArtist = bestMatch.ar.joinToString("/") { it.name }
-
-        AppLogger.d(TAG, "Selected recommended next song: ${bestMatch.name} by $bestArtist (id=${bestMatch.id})")
-
-        return QueueItem(
-            songId = bestMatch.id,
-            title = bestMatch.name,
-            artist = bestArtist,
-            coverUrl = bestMatch.al.picUrl
-        )
+        val autoplayTracks = getAutoplayBatch(currentTrack, activeQueue, limit = 5)
+        return autoplayTracks.firstOrNull()
     }
-
-    /**
-     * Generates a Mimikyu-quality radio queue seeded by [seedTrack].
-     * Uses InnerTube's native RDAMVM track radio graph + implicit user taste signals + Mimikyu polish pass.
-     */
     suspend fun getRecommendedQueueForTrack(
         seedTrack: QueueItem,
         count: Int = 25
@@ -235,33 +190,16 @@ class SmartRecommendationEngine(
         if (videoId.isNullOrBlank()) return emptyList()
 
         // 2. Query InnerTube native RDAMVM track radio
-        val radioCandidates = InnerTubeRadioEngine.getRadioCandidates(videoId, count = 40)
+        val radioCandidates = InnerTubeRadioEngine.getRadioCandidates(videoId, count = 50)
+        if (radioCandidates.isEmpty()) return emptyList()
 
-        // 3. Retrieve familiar favorites (30% split)
-        val familiar = tasteSignalScorer?.getFamiliarFavorites()?.map {
-            QueueItem(
-                songId = it.songId,
-                title = it.title,
-                artist = it.artist,
-                coverUrl = it.coverUrl,
-                videoId = it.videoId
-            )
-        }.orEmpty()
-
-        // 4. Exclude current seed title to prevent immediate repetition
-        val excludedTitles = setOf(com.lin0721.linmusic.core.metadata.normalizeTrackTitleForDeduplication(seedTrack.title))
-
-        // 5. Apply the Mimikyu Polish (Max-2 artist rule, 70/30 familiarity split, title deduplication)
-        val polished = MimikyuPolishFilter.applyPolish(
-            novelCandidates = radioCandidates.filter { it.songId != seedSongId && it.videoId != videoId },
-            familiarFavorites = familiar.filter { it.songId != seedSongId },
-            targetCount = count,
-            excludedRecentTitles = excludedTitles
+        // 3. Extend using BitChord QueueBuilder (pure algorithmic track radio, artist caps, deduplication)
+        return BitChordQueueBuilder.extend(
+            existing = listOf(seedTrack),
+            candidates = radioCandidates,
+            limit = count
         )
-
-        return if (polished.isNotEmpty()) polished else radioCandidates.take(count)
     }
-
     private suspend fun loadProfile(): RecommendationProfile {
         return try {
             val jsonStr = context.recommendationDataStore.data.map { it[KEY_PROFILE] }.first()

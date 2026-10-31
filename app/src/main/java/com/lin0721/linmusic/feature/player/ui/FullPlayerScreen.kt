@@ -346,6 +346,15 @@ fun FullPlayerScreen(
         }
     }
     val coroutineScope = rememberCoroutineScope()
+
+    val onDownloadCurrentTrack: () -> Unit = {
+        val sId = currentTrack.mediaId.toLongOrNull() ?: 0L
+        val artistNames = songDetail?.ar?.joinToString("/") { it.name }?.takeIf { it.isNotBlank() } ?: displayedArtist
+        val albumName = songDetail?.al?.name ?: ""
+        val albumYear = com.lin0721.linmusic.core.download.yearFromEpochMillis(songDetail?.publishTime ?: 0)
+        val level = songDetail?.privilege?.dlLevel ?: "exhigh"
+        viewModel.downloadCurrentSong(sId, displayedTitle, artistNames, albumName, coverUrl, albumYear, level)
+    }
     var dragReleaseJob by remember { mutableStateOf<Job?>(null) }
 
     // ClosePlay， of
@@ -434,6 +443,8 @@ fun FullPlayerScreen(
                         bottom = (if (allCardsHidden) MimikyuSpacing.md else 80.dp) + mimikyuNavigationBarBottomPadding()
                     )
                 ) {
+                    
+
                     fullPlayerPlaybackSection(
                         songState = songDetailState,
                         colors = colors,
@@ -487,6 +498,8 @@ fun FullPlayerScreen(
                         onShareClick = { shareCurrentSong() },
                         onOpenFullScreenLyrics = { isLyricsFullScreen = true },
                         connectedDevice = connectedDevice,
+                        currentSongId = currentTrack.mediaId.toLongOrNull() ?: 0L,
+                        onDownloadClick = onDownloadCurrentTrack,
                         onCurrentBitmapLoaded = { bitmap ->
                             coroutineScope.launch(Dispatchers.Default) {
                                 val palette = extractBackdropPaletteFromBitmap(bitmap)
@@ -614,7 +627,9 @@ fun FullPlayerScreen(
                         onOutputDeviceClick = { showOutputDeviceSheet = true },
                         onQueueClick = { showQueueSheet = true },
                         onShareClick = { shareCurrentSong() },
-                        connectedDevice = connectedDevice
+                        connectedDevice = connectedDevice,
+                        currentSongId = currentTrack.mediaId.toLongOrNull() ?: 0L,
+                        onDownloadClick = onDownloadCurrentTrack
                     )
                 },
                 lyrics = songDetailState.lyrics,
@@ -659,6 +674,7 @@ fun FullPlayerScreen(
             currentLyricIndex = currentLyricIndex,
             title = title,
             artist = artist,
+            coverUrl = coverUrl,
             hazeState = hazeState,
             isPlaying = isPlaying,
             currentPositionProvider = lyricPositionProvider,

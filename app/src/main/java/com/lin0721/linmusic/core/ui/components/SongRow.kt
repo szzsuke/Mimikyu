@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.painterResource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,7 +59,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import com.lin0721.linmusic.core.download.DownloadPreferences
+import com.lin0721.linmusic.core.download.SongDownloadManager
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
 import com.lin0721.linmusic.core.ui.theme.RadiusCompact
 import com.lin0721.linmusic.core.ui.theme.RobotoFontFamily
 import com.lin0721.linmusic.core.ui.theme.DownloadedGreen
@@ -77,20 +83,51 @@ import org.koin.compose.koinInject
 @Composable
 fun DownloadedBadge(
     modifier: Modifier = Modifier,
-    tint: Color = MaterialTheme.colorScheme.primary
+    tint: Color = MimikyuPink
+) {
+    Icon(
+        painter = painterResource(com.lin0721.linmusic.core.ui.theme.MimikyuIcons.DownloadDone),
+        contentDescription = "Downloaded",
+        tint = tint,
+        modifier = modifier.size(13.dp)
+    )
+}
+
+/**
+ * Circular download progress badge filling in clockwise with MimikyuPink accent.
+ */
+@Composable
+fun DownloadingProgressBadge(
+    progress: Int,
+    modifier: Modifier = Modifier,
+    tint: Color = MimikyuPink
 ) {
     Box(
-        modifier = modifier
-            .size(13.dp)
-            .clip(CircleShape)
-            .background(tint),
+        modifier = modifier.size(13.dp),
         contentAlignment = Alignment.Center
     ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val strokeWidth = 1.6.dp.toPx()
+            drawArc(
+                color = Color.White.copy(alpha = 0.25f),
+                startAngle = 0f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = Stroke(width = strokeWidth)
+            )
+            drawArc(
+                color = tint,
+                startAngle = -90f,
+                sweepAngle = 360f * (progress.coerceIn(0, 100) / 100f),
+                useCenter = false,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            )
+        }
         Icon(
             imageVector = Icons.Rounded.ArrowDownward,
-            contentDescription = "Downloaded",
-            tint = com.lin0721.linmusic.core.ui.theme.BackgroundDark,
-            modifier = Modifier.size(9.dp)
+            contentDescription = "Downloading",
+            tint = tint,
+            modifier = Modifier.size(7.dp)
         )
     }
 }
@@ -152,6 +189,7 @@ fun SongRow(
     }
 
     val downloadPreferences: DownloadPreferences = koinInject()
+    val songDownloadManager: SongDownloadManager = koinInject()
     val isDownloaded by produceState(initialValue = false, data.id, showDownloadBadge) {
         if (showDownloadBadge) {
             downloadPreferences.downloadedQualityFor(data.id).collect { quality ->
@@ -159,6 +197,15 @@ fun SongRow(
             }
         } else {
             value = false
+        }
+    }
+    val downloadingProgress by produceState<Int?>(initialValue = null, data.id, showDownloadBadge) {
+        if (showDownloadBadge) {
+            songDownloadManager.observeProgress(data.id).collect { percent ->
+                value = percent
+            }
+        } else {
+            value = null
         }
     }
 
@@ -212,11 +259,22 @@ fun SongRow(
             }
             Spacer(Modifier.height(MimikyuSpacing.xxs))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (showDownloadBadge && isDownloaded) {
-                    DownloadedBadge(
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(end = 5.dp)
-                    )
+                if (showDownloadBadge) {
+                    when {
+                        downloadingProgress != null -> {
+                            DownloadingProgressBadge(
+                                progress = downloadingProgress ?: 0,
+                                tint = MimikyuPink,
+                                modifier = Modifier.padding(end = 5.dp)
+                            )
+                        }
+                        isDownloaded -> {
+                            DownloadedBadge(
+                                tint = MimikyuPink,
+                                modifier = Modifier.padding(end = 5.dp)
+                            )
+                        }
+                    }
                 }
                 Text(
                     text = data.artist,
@@ -389,17 +447,32 @@ fun DraggableSongRow(
             )
             Spacer(Modifier.height(2.dp))
             val downloadPreferences: DownloadPreferences = koinInject()
+            val songDownloadManager: SongDownloadManager = koinInject()
             val isDownloaded by produceState(initialValue = false, data.id) {
                 downloadPreferences.downloadedQualityFor(data.id).collect { quality ->
                     value = quality != null
                 }
             }
+            val downloadingProgress by produceState<Int?>(initialValue = null, data.id) {
+                songDownloadManager.observeProgress(data.id).collect { percent ->
+                    value = percent
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isDownloaded) {
-                    DownloadedBadge(
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(end = 5.dp)
-                    )
+                when {
+                    downloadingProgress != null -> {
+                        DownloadingProgressBadge(
+                            progress = downloadingProgress ?: 0,
+                            tint = MimikyuPink,
+                            modifier = Modifier.padding(end = 5.dp)
+                        )
+                    }
+                    isDownloaded -> {
+                        DownloadedBadge(
+                            tint = MimikyuPink,
+                            modifier = Modifier.padding(end = 5.dp)
+                        )
+                    }
                 }
                 Text(
                     data.artist,

@@ -91,13 +91,11 @@ fun LyricsCard(
         label = "dark_radius"
     )
 
-    val vividBase = remember(base) { base.saturateIfChromatic(0.6f) }
-    val fillColor = remember(vividBase) { vividBase.darken(0.35f) }
-    val darkBlob = remember(vividBase) { vividBase.darken(0.15f) }
-    // of  of  textHighlight ， of  vividBase ，
-    // +，
-    val textVividBase = remember(base) { base.saturateIfChromatic(0.8f).lighten(1.0f) }
-    val inactiveLyricColor = remember(textVividBase) { lerp(textVividBase, Color.White, 0.5f) }
+    // Match the background cover art color family directly without artificial neon saturation
+    val cardFill = remember(base) { base.darken(0.48f).copy(alpha = 0.88f) }
+    val cardDarkBlob = remember(base) { base.darken(0.62f).copy(alpha = 0.95f) }
+    val cardLightBlob = remember(base) { base.lighten(0.06f).copy(alpha = 0.40f) }
+    val inactiveLyricColor = remember(base) { Color.White.copy(alpha = 0.45f) }
 
     // Current， LyricsPreview Current Text  of  onTextLayout ，Moments
     var currentLineWrapLines by remember { mutableIntStateOf(1) }
@@ -125,8 +123,11 @@ fun LyricsCard(
                 .drawBehind {
                     val baseSize = size.minDimension
                     drawSingleHueMesh(
-                        fill = fillColor,
-                        darkBlob = darkBlob,
+                        fill = cardFill,
+                        lightBlob = cardLightBlob,
+                        lightCenter = Offset(size.width * (1f - darkCenterX), size.height * (1f - darkCenterY)),
+                        lightRadius = baseSize * 0.45f,
+                        darkBlob = cardDarkBlob,
                         darkCenter = Offset(size.width * darkCenterX, size.height * darkCenterY),
                         darkRadius = baseSize * darkRadiusScale
                     )
@@ -139,8 +140,9 @@ fun LyricsCard(
         ) {
             Text(
                 "Lyrics Preview",
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 18.sp,
+                color = Color.White,
+                fontSize = 17.sp,
+                fontFamily = SFProFontFamily,
                 fontWeight = FontWeight.Bold
             )
 

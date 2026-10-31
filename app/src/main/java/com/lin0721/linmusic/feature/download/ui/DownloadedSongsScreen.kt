@@ -37,6 +37,14 @@ import coil.request.ImageRequest
 import com.lin0721.linmusic.LocalBottomOverlayInset
 import com.lin0721.linmusic.R
 import com.lin0721.linmusic.core.download.DownloadPreferences
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import com.lin0721.linmusic.core.download.SongDownloadManager
+import com.lin0721.linmusic.core.download.DownloadProgressItem
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
+import androidx.compose.foundation.lazy.items
+
 import com.lin0721.linmusic.core.download.DownloadRecord
 import com.lin0721.linmusic.core.localmusic.LocalCoverArtCache
 import com.lin0721.linmusic.core.player.PlayerManager
@@ -71,11 +79,13 @@ fun DownloadedSongsScreen(
     modifier: Modifier = Modifier
 ) {
     val downloadPreferences: DownloadPreferences = koinInject()
+    val songDownloadManager: SongDownloadManager = koinInject()
     val playerManager: PlayerManager = koinInject()
     val localCoverArtCache: LocalCoverArtCache = koinInject()
     val scope = rememberCoroutineScope()
 
     val records by downloadPreferences.records.collectAsStateWithLifecycle(initialValue = emptyList())
+    val activeDownloads by songDownloadManager.observeActiveDownloads().collectAsStateWithLifecycle(initialValue = emptyList())
 
     Box(
         modifier = modifier
@@ -84,6 +94,7 @@ fun DownloadedSongsScreen(
     ) {
         DownloadedSongsContent(
             records = records,
+            activeDownloads = activeDownloads,
             onBack = onBack,
             onPlaySongAt = { playList, index ->
                 val items = playList.map { rec ->
@@ -127,6 +138,10 @@ fun DownloadedSongsScreen(
                     downloadPreferences.removeRecord(rec.songId)
                     ToastManager.showToast("Removed from downloads")
                 }
+            },
+            onCancelDownload = { item ->
+                songDownloadManager.cancelByWorkId(item.workId, item.songId)
+                ToastManager.showToast("Download cancelled")
             }
         )
     }
@@ -136,11 +151,13 @@ fun DownloadedSongsScreen(
 @Composable
 fun DownloadedSongsContent(
     records: List<DownloadRecord>,
+    activeDownloads: List<DownloadProgressItem> = emptyList(),
     onBack: () -> Unit,
     onPlaySongAt: (List<DownloadRecord>, Int) -> Unit,
     onPlayAll: (List<DownloadRecord>, Boolean) -> Unit,
     onPlayNext: (DownloadRecord) -> Unit,
     onDeleteRecord: (DownloadRecord) -> Unit,
+    onCancelDownload: (DownloadProgressItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -377,6 +394,19 @@ fun DownloadedSongsContent(
                             }
                         }
                     }
+                }
+            }
+
+            // Actively downloading items (instantly appear in folder per user request)
+            if (activeDownloads.isNotEmpty()) {
+                items(
+                    items = activeDownloads,
+                    key = { "active_dl_${it.workId}" }
+                ) { item ->
+                    ActiveDownloadingSongRow(
+                        item = item,
+                        onCancel = { onCancelDownload(item) }
+                    )
                 }
             }
 
@@ -723,3 +753,111 @@ private fun DownloadedSongRow(
     }
 }
 
+
+
+@Composable
+private fun ActiveDownloadingSongRow(
+    item: DownloadProgressItem,
+    onCancel: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = EdgePadding, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFF262626)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!item.coverUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(item.coverUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    painter = painterResource(MimikyuIcons.MusicNote),
+                    contentDescription = null,
+                    tint = MimikyuSilver.copy(alpha = 0.4f),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            // Darkened scrim overlay so album art is visible underneath
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.55f))
+            )
+
+            // Clockwise circular progress ring in MimikyuPink
+            Canvas(modifier = Modifier.size(24.dp)) {
+                val strokeWidth = 2.2.dp.toPx()
+                drawArc(
+                    color = Color.White.copy(alpha = 0.30f),
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = Stroke(width = strokeWidth)
+                )
+                drawArc(
+                    color = MimikyuPink,
+                    startAngle = -90f,
+                    sweepAngle = 360f * (item.progress.coerceIn(0, 100) / 100f),
+                    useCenter = false,
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                )
+            }
+
+            Icon(
+                painter = painterResource(MimikyuIcons.Download),
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(11.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.songName.ifBlank { "Downloading song..." },
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = if (item.artistName.isNotBlank()) {
+                    "${item.artistName} • ${item.progress}%"
+                } else {
+                    "Downloading • ${item.progress}%"
+                },
+                color = MimikyuPink,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        IconButton(
+            onClick = onCancel,
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                painter = painterResource(MimikyuIcons.Close),
+                contentDescription = "Cancel download",
+                tint = MimikyuSilver,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}

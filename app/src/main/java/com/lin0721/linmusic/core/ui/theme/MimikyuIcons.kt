@@ -73,6 +73,7 @@ object MimikyuIcons {
     @DrawableRes val More = R.drawable.ic_mimikyu_more_24
     @DrawableRes val Download = R.drawable.ic_mimikyu_download_24
     @DrawableRes val Downloaded = R.drawable.ic_mimikyu_downloaded_24
+    @DrawableRes val DownloadDone = R.drawable.ic_mimikyu_download_done_24
     @DrawableRes val Filter = R.drawable.ic_mimikyu_filter_24
     @DrawableRes val Sort = R.drawable.ic_mimikyu_sort_24
     @DrawableRes val SortBy = R.drawable.ic_mimikyu_sort_by_24

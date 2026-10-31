@@ -207,7 +207,11 @@ class PlayRecorder(
         val effectiveDurationSec = if (currentDurationSec > 0) currentDurationSec else durationMs / 1000
         val listenedSec = sessionActiveMs / 1000
 
-        val targetSec = 5L
+        val targetSec = if (effectiveDurationSec in 1..59) {
+            (effectiveDurationSec / 2).coerceAtLeast(1L)
+        } else {
+            30L
+        }
 
         if (listenedSec >= targetSec) {
             recordPlay(listenedSec, effectiveDurationSec)

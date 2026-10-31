@@ -20,6 +20,10 @@ import com.lin0721.linmusic.core.network.AppError
 import com.lin0721.linmusic.core.player.data.PlaybackRepository
 import com.lin0721.linmusic.core.player.resolver.OfficialAudioTrackResolver
 import com.lin0721.linmusic.core.preferences.SettingsPreferences
+import com.lin0721.linmusic.core.player.automix.FastTrackAnalyzer
+import com.lin0721.linmusic.core.player.automix.SmartAutomixPlanner
+import com.lin0721.linmusic.core.player.automix.TransitionStyle
+import com.lin0721.linmusic.core.player.recommendation.BitChordQueueBuilder
 import com.lin0721.linmusic.core.sponsorblock.SponsorBlockClient
 import com.lin0721.linmusic.core.sponsorblock.SponsorBlockController
 import com.lin0721.linmusic.core.player.innertube.YouTubeIdRegistry
@@ -45,13 +49,13 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "PlayerManager"
 
-// Retry of ，
+// Retry of ï¼Œ
 private val NETWORK_RETRY_DELAYS_MS = longArrayOf(2000L, 5000L, 10000L)
 
-// Queue of ， of
+// Queue of ï¼Œ of
 private const val QUEUE_MOVE_SAVE_DEBOUNCE_MS = 400L
 
-// Play of ，
+// Play of ï¼Œ
 private const val PERIODIC_STATE_SAVE_INTERVAL_MS = 3000L
 
 // Prefetched stream with expiration timestamp
@@ -92,14 +96,14 @@ class PlayerManager(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    // Play：Play，。 isPlaying  false，
+    // Playï¼šPlayï¼Œã€‚ isPlaying  falseï¼Œ
     private val _playWhenReady = MutableStateFlow(false)
     val playWhenReady: StateFlow<Boolean> = _playWhenReady.asStateFlow()
 
     private val _currentTrack = MutableStateFlow<MediaItem?>(null)
     val currentTrack: StateFlow<MediaItem?> = _currentTrack.asStateFlow()
 
-    // "Connect Device" of  id；null ，
+    // "Connect Device" of  idï¼›null ï¼Œ
     private val _preferredOutputDeviceId = MutableStateFlow<Int?>(null)
     val preferredOutputDeviceId: StateFlow<Int?> = _preferredOutputDeviceId.asStateFlow()
 
@@ -136,12 +140,12 @@ class PlayerManager(
     val playMode: StateFlow<PlayMode> = playbackQueue.playMode
     val queue: StateFlow<List<QueueItem>> = playbackQueue.items
 
-    // CurrentPlayQueue， localUri
+    // CurrentPlayQueueï¼Œ localUri
     val currentQueueItem: StateFlow<QueueItem?> = combine(playbackQueue.items, playbackQueue.currentIndex) { items, index ->
         if (index in items.indices) items[index] else null
     }.stateIn(scope, SharingStarted.Eagerly, null)
 
-    // Artists：Queue， null
+    // Artistsï¼šQueueï¼Œ null
     val previousQueueItem: StateFlow<QueueItem?> = combine(playbackQueue.items, playbackQueue.currentIndex) { items, index ->
         if (items.size > 1 && index in items.indices) items[(index - 1 + items.size) % items.size] else null
     }.stateIn(scope, SharingStarted.Eagerly, null)
@@ -157,36 +161,39 @@ class PlayerManager(
     private var stallWatchdogJob: Job? = null
     private var upgradeMonitorJob: Job? = null
 
-    // Artists： fetchUrlAndPlay  of Queue，playItem
+    // Artistsï¼š fetchUrlAndPlay  of Queueï¼ŒplayItem
     private var pendingSkipFromIndex: Int? = null
 
-    // ，Reset 0
+    // ï¼ŒReset 0
     private var pendingStartPosition: Long = 0L
 
-    // "Renewing stream url and resuming playback" of ，Clear，Retry
+    // "Renewing stream url and resuming playback" of ï¼ŒClearï¼ŒRetry
     private var streamErrorRecoverySongId: Long? = null
 
     // PlaySave of
     private var lastPeriodicSaveElapsedMs: Long = 0L
 
-    // ， DataStore
+    // Crossfade & Automix settings
     @Volatile private var crossfadeEnabled = false
+    @Volatile private var automixEnabled = true
     @Volatile private var crossfadeDurationMs = CrossfadePolicy.DEFAULT_DURATION_MS
 
-    // of Songs， of  ENDED Queue
+    // Automix & Crossfade state
     private var autoCrossfadeTriggeredSongId: Long = -1L
     private var autoCrossfadeTriggeredTimeMs: Long = 0L
     private var lastMediaItemTransitionMs: Long = 0L
     private var lastAutoAdvanceMs: Long = 0L
     private var pendingAutoFadeMs: Long = 0L
+    private var pendingBassSwap: Boolean = false
     private var autoCrossfadeScheduledSongId: Long = -1L
     private var autoCrossfadeJob: Job? = null
     private val edgeAnalyzer = TrackEdgeAnalyzer(context)
+    private val fastTrackAnalyzer = FastTrackAnalyzer(context, edgeAnalyzer)
     private var pendingTargetSongId: Long? = null
 
-    // of Play (songId, uri)，Current of
+    // of Play (songId, uri)ï¼ŒCurrent of
     private var requestedSource: Pair<Long, String>? = null
-    // Next of  (songId, )，
+    // Next of  (songId, )ï¼Œ
     private var pendingStartOffset: Pair<Long, Long>? = null
 
     private var prefetchJob: Job? = null
@@ -229,7 +236,7 @@ class PlayerManager(
             }
         }
 
-        // playMode ，newValue != oldValue
+        // playMode ï¼ŒnewValue != oldValue
         scope.launch {
             stateStore.playModeChanges.collectLatest { newMode ->
                 if (playbackQueue.playMode.value != newMode) {
@@ -240,6 +247,9 @@ class PlayerManager(
 
         scope.launch {
             settingsPreferences.crossfadeEnabled.collect { crossfadeEnabled = it }
+        }
+        scope.launch {
+            settingsPreferences.automixEnabled.collect { automixEnabled = it }
         }
         scope.launch {
             settingsPreferences.crossfadeDurationMs.collect { crossfadeDurationMs = it }
@@ -303,9 +313,12 @@ class PlayerManager(
         val builder = current.mediaMetadata.buildUpon()
         var changed = false
 
-        if (!enriched.artworkUrl.isNullOrBlank() && current.mediaMetadata.artworkUri?.toString() != enriched.artworkUrl) {
-            builder.setArtworkUri(android.net.Uri.parse(enriched.artworkUrl))
-            changed = true
+        val currentArt = current.mediaMetadata.artworkUri?.toString().orEmpty()
+        if (!enriched.artworkUrl.isNullOrBlank() && currentArt != enriched.artworkUrl) {
+            if (currentArt.isBlank()) {
+                builder.setArtworkUri(android.net.Uri.parse(enriched.artworkUrl))
+                changed = true
+            }
         }
         if (enriched.title.isNotBlank() && current.mediaMetadata.title?.toString() != enriched.title) {
             builder.setTitle(enriched.title)
@@ -394,11 +407,11 @@ class PlayerManager(
         if (playContext == SimilarRoamingController.CONTEXT_ROAMING) {
             roaming.prepare()
         } else if (playContext == CONTEXT_INTELLIGENCE) {
-            // Heartbeat Mode of Queue，Close
+            // Heartbeat Mode of Queueï¼ŒClose
             playbackQueue.takeSnapshot()
         }
 
-        // Now Playing of Songs ID（ of ，QueueCurrent）
+        // Now Playing of Songs IDï¼ˆ of ï¼ŒQueueCurrentï¼‰
         val playingSongId = _currentTrack.value?.mediaId?.toLongOrNull()
             ?: playbackQueue.currentItem()?.songId
 
@@ -412,7 +425,7 @@ class PlayerManager(
         val isCurrentPlayingTrack = targetItem != null && targetItem.songId == playingSongId
 
         if ((playContext == CONTEXT_INTELLIGENCE || playContext == SimilarRoamingController.CONTEXT_ROAMING) && isCurrentPlayingTrack) {
-            // CurrentNow Playing of ， and Reset
+            // CurrentNow Playing of ï¼Œ and Reset
             roaming.prefetchOnPlay(targetItem.songId, currentIndex)
             return
         }
@@ -420,7 +433,7 @@ class PlayerManager(
         fetchUrlAndPlay(currentIndex)
     }
 
-    // TracksPlay（，Create 1 Queue）
+    // TracksPlayï¼ˆï¼ŒCreate 1 Queueï¼‰
     fun playAudio(songId: Long, url: String, title: String, artist: String, coverUrl: String, startPosition: Long = 0, playContext: String? = null) {
         val vid = YouTubeIdRegistry.getVideoId(songId)
         val item = QueueItem(songId = songId, title = title, artist = artist, coverUrl = coverUrl, videoId = vid)
@@ -463,6 +476,7 @@ class PlayerManager(
                     if (curItem?.songId == enriched.songId) {
                         playbackQueue.insertNext(recommended)
                         saveQueueState()
+                        preResolveAndQueueUpcoming(curIdx)
                         AppLogger.i(TAG, "Enqueued ${recommended.size} dynamic radio recommendations for '${enriched.title}'")
                     }
                 }
@@ -472,7 +486,7 @@ class PlayerManager(
         }
     }
 
-    // Songs“Next”Play
+    // Songsâ€œNextâ€Play
     fun addToPlayNext(items: List<QueueItem>) {
         if (items.isEmpty()) return
         val enrichedItems = items.map { item ->
@@ -490,7 +504,7 @@ class PlayerManager(
         saveQueueState()
     }
 
-    // "Next"Play，Queue
+    // "Next"Playï¼ŒQueue
     fun playNextNow(item: QueueItem, startPosition: Long = 0L) {
         val enriched = if (item.videoId.isNullOrBlank()) {
             val vid = YouTubeIdRegistry.getVideoId(item.songId)
@@ -665,7 +679,7 @@ class PlayerManager(
         saveState()
     }
 
-    // Play（ MV Play）"Wi-Fi Only Playback"， and Play of
+    // Playï¼ˆ MV Playï¼‰"Wi-Fi Only Playback"ï¼Œ and Play of
     suspend fun shouldBlockPlaybackOnMobile(): Boolean = networkGuard.blockPlaybackOnMobile()
 
     fun resume() {
@@ -685,10 +699,22 @@ class PlayerManager(
     }
 
     fun seekTo(positionMs: Long) {
+        autoCrossfadeScheduledSongId = -1L
+        autoCrossfadeTriggeredSongId = -1L
+        autoCrossfadeJob?.cancel()
+        autoCrossfadeJob = null
+        pendingAutoFadeMs = 0L
+        // Preserve pre-armed standby player on seek within same track
+
         controllerHolder.seekTo(positionMs)
         progress.setPosition(positionMs)
         val songId = _currentTrack.value?.mediaId?.toLongOrNull() ?: -1L
         if (songId != -1L) {
+            val dur = progress.duration.value
+            if (dur > 0L) {
+                val remainingMs = dur - positionMs
+                maybeScheduleAutoCrossfade(songId, remainingMs, dur)
+            }
             maybeCheckStreamCacheProgress(songId, positionMs, progress.duration.value)
         }
         saveState()
@@ -854,9 +880,13 @@ class PlayerManager(
         saveQueueState()
 
         // 1. Optimistic UI Updates: immediately set current track and loading/buffering state
+        val originalCover = item.coverUrl.takeIf { it.isNotBlank() }
         val cached = metadataEnricher?.getCached(item.songId.toString())
             ?: metadataEnricher?.getCachedByQuery(item.title, item.artist)
-        val effectiveArt = cached?.artworkUrl ?: item.coverUrl
+        val effectiveArt = originalCover
+            ?: cached?.artworkUrl?.takeIf { it.isNotBlank() }
+            ?: YouTubeIdRegistry.getCoverUrl(item.songId).takeIf { it.isNotBlank() }
+            ?: ""
         val effectiveTitle = cached?.title?.takeIf { it.isNotBlank() } ?: item.title
         val effectiveArtist = cached?.artist?.takeIf { it.isNotBlank() } ?: item.artist
 
@@ -868,14 +898,19 @@ class PlayerManager(
         val optimisticMediaItem = optimisticItem.toMediaItem(item.localUri ?: "about:blank", playbackQueue.playContext.value, effectiveArt)
         _currentTrack.value = optimisticMediaItem
         _playWhenReady.value = playWhenReady
-        _isPlaying.value = false
-        _isLoading.value = true
-        if (startPosition <= 0L) {
-            progress.resetTo(0L, preserveDuration = false)
-            progress.setPosition(0L)
-            progress.setDuration(0L)
+        if (autoTransition) {
+            _isPlaying.value = true
+            _isLoading.value = false
         } else {
-            progress.resetTo(startPosition, preserveDuration = true)
+            _isPlaying.value = false
+            _isLoading.value = true
+            if (startPosition <= 0L) {
+                progress.resetTo(0L, preserveDuration = false)
+                progress.setPosition(0L)
+                progress.setDuration(0L)
+            } else {
+                progress.resetTo(startPosition, preserveDuration = true)
+            }
         }
 
         // Preload next 2 album covers (N+1 and N+2) in Coil memory cache immediately
@@ -901,7 +936,12 @@ class PlayerManager(
                     ?: item.coverUrl
                 val mediaItem = item.toMediaItem(item.localUri, playbackQueue.playContext.value, artworkUri)
                 controllerHolder.playItem(mediaItem.withCrossfade(autoTransition, startPosition), playbackQueue.playMode.value, startPosition, playWhenReady)
-                preResolveAndQueueUpcoming(index)
+        preArmNextUpcomingTrack(index)
+                        preResolveAndQueueUpcoming(index)
+        val remainingInQueue = playbackQueue.size - 1 - index
+        if (remainingInQueue < 3) {
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+        }
                 return@launch
             }
 
@@ -923,7 +963,12 @@ class PlayerManager(
                     ?: item.coverUrl
                 val mediaItem = item.toMediaItem(localRecord.mediaStoreUri, playbackQueue.playContext.value, artworkUri)
                 controllerHolder.playItem(mediaItem.withCrossfade(autoTransition, startPosition), playbackQueue.playMode.value, startPosition, playWhenReady)
-                preResolveAndQueueUpcoming(index)
+        preArmNextUpcomingTrack(index)
+                        preResolveAndQueueUpcoming(index)
+        val remainingInQueue = playbackQueue.size - 1 - index
+        if (remainingInQueue < 3) {
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+        }
                 return@launch
             }
 
@@ -960,11 +1005,12 @@ class PlayerManager(
             }.getOrNull()
 
             val effectiveItem = if (atvResult != null) {
+                val preservedCover = if (item.coverUrl.isNotBlank()) item.coverUrl else atvResult.coverUrl
                 val updated = item.copy(
                     videoId = atvResult.videoId,
                     title = atvResult.title,
                     artist = atvResult.artist,
-                    coverUrl = atvResult.coverUrl,
+                    coverUrl = preservedCover,
                     durationSec = atvResult.durationSec,
                     album = atvResult.albumName ?: item.album
                 )
@@ -972,7 +1018,7 @@ class PlayerManager(
                     songId = item.songId,
                     title = atvResult.title,
                     artist = atvResult.artist,
-                    coverUrl = atvResult.coverUrl,
+                    coverUrl = preservedCover,
                     videoId = atvResult.videoId,
                     album = atvResult.albumName ?: item.album
                 )
@@ -982,7 +1028,7 @@ class PlayerManager(
                     artist = atvResult.artist,
                     durationSec = atvResult.durationSec,
                     album = atvResult.albumName ?: item.album.orEmpty(),
-                    coverUrl = atvResult.coverUrl
+                    coverUrl = preservedCover
                 )
                 updated
             } else {
@@ -991,7 +1037,11 @@ class PlayerManager(
 
             val effectiveVideoId = effectiveItem.effectiveVideoId()
             val vidToResolve = effectiveVideoId ?: YouTubeIdRegistry.getVideoId(effectiveItem.songId) ?: ""
-            val finalArt = atvResult?.coverUrl ?: effectiveArt
+            val finalArt = if (item.coverUrl.isNotBlank()) {
+                com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(item.coverUrl, com.lin0721.linmusic.core.metadata.SongArtworkEngine.PLAYER_ART_PX)
+            } else {
+                atvResult?.coverUrl ?: effectiveArt
+            }
 
             // Explicit prefetched URL argument check
             if (prefetchedUrl != null) {
@@ -999,7 +1049,12 @@ class PlayerManager(
                 val mediaItem = effectiveItem.toMediaItem(prefetchedUrl, playbackQueue.playContext.value, finalArt)
                 pendingSkipFromIndex = null
                 controllerHolder.playItem(mediaItem.withCrossfade(autoTransition, startPosition), playbackQueue.playMode.value, startPosition, playWhenReady)
-                preResolveAndQueueUpcoming(index)
+        preArmNextUpcomingTrack(index)
+                        preResolveAndQueueUpcoming(index)
+        val remainingInQueue = playbackQueue.size - 1 - index
+        if (remainingInQueue < 3) {
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+        }
                 return@launch
             }
 
@@ -1016,7 +1071,12 @@ class PlayerManager(
                 val mediaItem = effectiveItem.toMediaItem(validPrefetched.url, playbackQueue.playContext.value, finalArt)
                 pendingSkipFromIndex = null
                 controllerHolder.playItem(mediaItem.withCrossfade(autoTransition, startPosition), playbackQueue.playMode.value, startPosition, playWhenReady)
-                preResolveAndQueueUpcoming(index)
+        preArmNextUpcomingTrack(index)
+                        preResolveAndQueueUpcoming(index)
+        val remainingInQueue = playbackQueue.size - 1 - index
+        if (remainingInQueue < 3) {
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+        }
                 return@launch
             }
             prefetchedStream = null
@@ -1118,7 +1178,11 @@ class PlayerManager(
             startPosition,
             playWhenReady
         )
-        preResolveAndQueueUpcoming(index)
+                preResolveAndQueueUpcoming(index)
+        val remainingInQueue = playbackQueue.size - 1 - index
+        if (remainingInQueue < 3) {
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+        }
 
         if (!startInLow && lqUrl.isNotBlank() && lqUrl != hqUrl) {
             startStallWatchdog(item, hqUrl, lqUrl, effectiveArt)
@@ -1176,15 +1240,15 @@ class PlayerManager(
         }
     }
 
-    // Artists：Songs of Play、Play，
-    // CurrentSongsPlay；（Play）Back false
+    // Artistsï¼šSongs of Playã€Playï¼Œ
+    // CurrentSongsPlayï¼›ï¼ˆPlayï¼‰Back false
     fun cancelPendingSkip(): Boolean {
         val fromIndex = pendingSkipFromIndex ?: return false
         activeLoadJob?.cancel()
         pendingSkipFromIndex = null
         playbackQueue.setCurrentIndex(fromIndex)
         saveQueueState()
-        // resetTo() /Clear，Play of
+        // resetTo() /Clearï¼ŒPlay of
         progress.setPosition(controllerHolder.currentPosition)
         progress.updateDurationFromController()
         return true
@@ -1287,6 +1351,18 @@ class PlayerManager(
             val currentItem = playbackQueue.itemAt(curIdx)
             if (currentItem != null) {
                 scope.launch {
+                    val nextTracks = effectiveRecommendationEngine.getAutoplayBatch(
+                        seedTrack = currentItem,
+                        activeQueue = playbackQueue.items.value,
+                        limit = BitChordQueueBuilder.MAX_QUEUED_AUTOPLAY
+                    )
+                    if (nextTracks.isNotEmpty()) {
+                        playbackQueue.append(nextTracks)
+                        saveQueueState()
+                    preResolveAndQueueUpcoming(playbackQueue.currentIndex.value)
+                        fetchUrlAndPlay(curIdx + 1, autoTransition = true)
+                        return@launch
+                    }
                     val nextTrack = effectiveRecommendationEngine.getNextRecommendedTrack(
                         currentTrack = currentItem,
                         activeQueue = playbackQueue.items.value
@@ -1294,6 +1370,7 @@ class PlayerManager(
                     if (nextTrack != null) {
                         playbackQueue.insertNext(listOf(nextTrack))
                         saveQueueState()
+                        preResolveTracks(listOf(nextTrack))
                         fetchUrlAndPlay(curIdx + 1, autoTransition = true)
                         return@launch
                     }
@@ -1306,8 +1383,10 @@ class PlayerManager(
         val nextIndex = playbackQueue.nextIndex()
         val nextItem = playbackQueue.itemAt(nextIndex)
 
-        // 0ms instant transition if ExoPlayer native queue already holds next item
-        if (nextItem != null && controllerHolder.hasNextMediaItem()) {
+        val isCrossfading = canAutoCrossfade() && pendingAutoFadeMs > 0L
+
+        // 0ms instant transition if ExoPlayer native queue already holds next item AND crossfade is NOT active
+        if (!isCrossfading && nextItem != null && controllerHolder.hasNextMediaItem()) {
             val nextSongId = nextItem.songId.toString()
             if (controllerHolder.peekNextMediaId() == nextSongId) {
                 AppLogger.i(TAG, "[Playback] playNextOnEnded: advancing seamlessly via ExoPlayer native queue")
@@ -1326,8 +1405,86 @@ class PlayerManager(
         fetchUrlAndPlay(nextIndex, prefetchedUrl = validUrl, autoTransition = true)
     }
 
-    // Current of  and Next of ，"Effective end - fade duration"；
-    // Wi-Fi ，Songs
+
+    // Pre-arm standby player on Player 2 immediately at 0:00 of track N
+    private fun preArmNextUpcomingTrack(currentIndex: Int) {
+        if (!canAutoCrossfade()) return
+        val currentItem = playbackQueue.itemAt(currentIndex) ?: return
+        val nextItem = playbackQueue.nextItemByMode() ?: return
+        if (playbackQueue.playMode.value == PlayMode.SINGLE_LOOP) return
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                val streamData = resolveStreamForItem(nextItem)
+                if (streamData != null && streamData.streamUrl.isNotBlank()) {
+                    prefetchedStream = PrefetchedStream(
+                        songId = nextItem.songId,
+                        videoId = streamData.videoId,
+                        url = streamData.streamUrl,
+                        expiresAtMs = streamData.expiresAtMs
+                    )
+
+                    val currDur = (currentItem.durationSec * 1000L).takeIf { it > 0L } ?: 180_000L
+                    val nextDur = (nextItem.durationSec * 1000L).takeIf { it > 0L } ?: 180_000L
+
+                    val currAnalysis = fastTrackAnalyzer.analyzeTrack(
+                        trackId = currentItem.songId.toString(),
+                        uri = currentItem.localUri ?: requestedSource?.second,
+                        durationMs = currDur,
+                        title = currentItem.title,
+                        artist = currentItem.artist
+                    )
+                    val nextAnalysis = fastTrackAnalyzer.analyzeTrack(
+                        trackId = nextItem.songId.toString(),
+                        uri = streamData.streamUrl,
+                        durationMs = nextDur,
+                        title = nextItem.title,
+                        artist = nextItem.artist
+                    )
+
+                    val isSameAlbum = !currentItem.album.isNullOrBlank() &&
+                            currentItem.album.equals(nextItem.album, ignoreCase = true)
+
+                    val plan = SmartAutomixPlanner.planTransition(
+                        currentAnalysis = currAnalysis,
+                        nextAnalysis = nextAnalysis,
+                        isSameAlbumSequential = isSameAlbum,
+                        configuredFadeMs = crossfadeDurationMs.toLong(),
+                        automixEnabled = automixEnabled
+                    )
+
+                    val fadeMs = plan.fadeDurationMs
+                    if (fadeMs > 0L) {
+                        pendingStartOffset = nextItem.songId to plan.incomingCueMs
+                        pendingBassSwap = (plan.transitionStyle == TransitionStyle.DJ_BLEND)
+                        val cached = metadataEnricher?.getCached(nextItem.songId.toString())
+                            ?: metadataEnricher?.getCachedByQuery(nextItem.title, nextItem.artist)
+                        val effectiveArt = cached?.artworkUrl ?: nextItem.coverUrl
+                        val mediaItem = nextItem.toMediaItem(
+                            url = streamData.streamUrl,
+                            playContext = playbackQueue.playContext.value,
+                            artworkUri = effectiveArt
+                        )
+                        withContext(Dispatchers.Main) {
+                            if (playbackQueue.currentIndex.value == currentIndex) {
+                                controllerHolder.preArmStandby(
+                                    mediaItem = mediaItem,
+                                    startPositionMs = plan.incomingCueMs,
+                                    fadeMs = fadeMs,
+                                    bassSwap = pendingBassSwap
+                                )
+                                AppLogger.i(TAG, "Standby player armed early for '${nextItem.title}' (fadeMs=$fadeMs, cueMs=${plan.incomingCueMs}, triggerMs=${plan.transitionStartMs})")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "preArmNextUpcomingTrack error: ${e.message}")
+            }
+        }
+    }
+
+    // Automix and Smart Crossfade scheduling
     private fun maybeScheduleAutoCrossfade(songId: Long, remainingMs: Long, durationMs: Long) {
         if (!canAutoCrossfade()) return
         if (autoCrossfadeScheduledSongId == songId || autoCrossfadeTriggeredSongId == songId) return
@@ -1335,83 +1492,140 @@ class PlayerManager(
         autoCrossfadeScheduledSongId = songId
         autoCrossfadeJob?.cancel()
         autoCrossfadeJob = scope.launch {
-            val analyze = isWifiConnected()
             val sourceUri = requestedSource?.takeIf { it.first == songId }?.second
-            // and Next
-            val endDeferred = async {
-                if (analyze && sourceUri != null) edgeAnalyzer.effectiveEndMs(songId.toString(), sourceUri, durationMs) else null
-            }
-            val startDeferred = async { if (analyze) analyzeNextTrackStart() else null }
-            val effectiveEndMs = endDeferred.await()?.coerceAtMost(durationMs) ?: durationMs
-            val nextStart = startDeferred.await()
-            val fadeMs = CrossfadePolicy.autoFadeMs(crossfadeDurationMs, effectiveEndMs)
-            if (fadeMs <= 0L) return@launch
-            val triggerMs = CrossfadePolicy.triggerPositionMs(effectiveEndMs, fadeMs)
-            AppLogger.i(TAG, "Auto-crossfade scheduled: songId=$songId end=$effectiveEndMs/$durationMs fadeMs=$fadeMs nextStart=$nextStart")
+            val currentItem = playbackQueue.itemAt(playbackQueue.currentIndex.value)
+            val nextItem = playbackQueue.nextItemByMode() ?: return@launch
 
-            // ，、Pause； ENDED
+            // 1. Ultra-fast analysis of current track
+            val currAnalysis = fastTrackAnalyzer.analyzeTrack(
+                trackId = songId.toString(),
+                uri = sourceUri,
+                durationMs = durationMs,
+                title = currentItem?.title.orEmpty(),
+                artist = currentItem?.artist.orEmpty()
+            )
+
+            // 2. Ultra-fast analysis of next track (incoming)
+            val nextUri = nextItem.localUri
+                ?: downloadPreferences.findVerifiedRecord(nextItem.songId)?.mediaStoreUri
+                ?: prefetchedStream?.takeIf {
+                    it.songId == nextItem.songId && it.expiresAtMs > System.currentTimeMillis() + 60_000L
+                }?.url
+
+            val nextAnalysis = fastTrackAnalyzer.analyzeTrack(
+                trackId = nextItem.songId.toString(),
+                uri = nextUri,
+                durationMs = (nextItem.durationSec * 1000L).takeIf { it > 0L } ?: 180_000L,
+                title = nextItem.title,
+                artist = nextItem.artist
+            )
+
+            val isSameAlbum = currentItem != null && !currentItem.album.isNullOrBlank() &&
+                    currentItem.album.equals(nextItem.album, ignoreCase = true)
+
+            // 3. Plan intelligent transition
+            val plan = SmartAutomixPlanner.planTransition(
+                currentAnalysis = currAnalysis,
+                nextAnalysis = nextAnalysis,
+                isSameAlbumSequential = isSameAlbum,
+                configuredFadeMs = crossfadeDurationMs.toLong(),
+                automixEnabled = automixEnabled
+            )
+
+            val fadeMs = plan.fadeDurationMs
+            if (fadeMs <= 0L) return@launch
+            val triggerMs = plan.transitionStartMs
+            pendingStartOffset = nextItem.songId to plan.incomingCueMs
+            pendingBassSwap = (plan.transitionStyle == TransitionStyle.DJ_BLEND)
+
+            AppLogger.i(TAG, "Automix plan: style=${plan.transitionStyle} trigger=${triggerMs}ms/${durationMs}ms fade=${fadeMs}ms cue=${plan.incomingCueMs}ms bassSwap=${plan.bassSwapFraction}")
+
+            // 4. Pre-arm standby player on Player 2 so it enters STATE_READY well before triggerMs arrives!
+            launch(Dispatchers.IO) {
+                try {
+                    val streamData = resolveStreamForItem(nextItem)
+                    if (streamData != null && streamData.streamUrl.isNotBlank()) {
+                        val cached = metadataEnricher?.getCached(nextItem.songId.toString())
+                            ?: metadataEnricher?.getCachedByQuery(nextItem.title, nextItem.artist)
+                        val effectiveArt = cached?.artworkUrl ?: nextItem.coverUrl
+                        val mediaItem = nextItem.toMediaItem(
+                            url = streamData.streamUrl,
+                            playContext = playbackQueue.playContext.value,
+                            artworkUri = effectiveArt
+                        )
+                        prefetchedStream = PrefetchedStream(
+                            songId = nextItem.songId,
+                            videoId = streamData.videoId,
+                            url = streamData.streamUrl,
+                            expiresAtMs = streamData.expiresAtMs
+                        )
+                        withContext(Dispatchers.Main) {
+                            if (_currentTrack.value?.mediaId?.toLongOrNull() == songId) {
+                                controllerHolder.preArmStandby(
+                                    mediaItem = mediaItem,
+                                    startPositionMs = plan.incomingCueMs,
+                                    fadeMs = fadeMs,
+                                    bassSwap = pendingBassSwap
+                                )
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed to pre-arm standby player: ${e.message}")
+                }
+            }
+
             while (true) {
                 if (!canAutoCrossfade() || _currentTrack.value?.mediaId?.toLongOrNull() != songId) return@launch
                 val positionMs = controllerHolder.currentPosition
-                if (positionMs >= effectiveEndMs) return@launch
                 if (!_isPlaying.value) {
                     delay(500L)
                     continue
                 }
                 val waitMs = triggerMs - positionMs
-                if (waitMs <= 0L) break
-                delay(waitMs.coerceAtMost(1000L))
+                if (waitMs <= 0L || positionMs >= currAnalysis.contentEndMs) break
+                delay(waitMs.coerceAtMost(500L))
             }
 
             autoCrossfadeTriggeredSongId = songId
             autoCrossfadeTriggeredTimeMs = SystemClock.elapsedRealtime()
-            pendingAutoFadeMs = effectiveEndMs - controllerHolder.currentPosition
-            AppLogger.i(TAG, "Triggering auto crossfade: songId=$songId fadeMs=$pendingAutoFadeMs")
+            pendingAutoFadeMs = fadeMs
+            AppLogger.i(TAG, "Triggering Automix transition: songId=$songId style=${plan.transitionStyle} fadeMs=$fadeMs")
             playNextOnEnded()
         }
     }
 
     private fun canAutoCrossfade(): Boolean =
-        crossfadeEnabled && playbackQueue.playMode.value != PlayMode.SINGLE_LOOP && playbackQueue.size > 1
-
-    private suspend fun analyzeNextTrackStart(): Long? {
-        val nextItem = playbackQueue.nextItemByMode() ?: return null
-        val uri = nextItem.localUri
-            ?: downloadPreferences.findVerifiedRecord(nextItem.songId)?.mediaStoreUri
-            ?: run {
-                prefetchJob?.join()
-                prefetchedStream?.takeIf {
-                    it.songId == nextItem.songId && it.expiresAtMs > System.currentTimeMillis() + 60_000L
-                }?.url
-            }
-        val startMs = uri?.let { edgeAnalyzer.effectiveStartMs(nextItem.songId.toString(), it) } ?: return null
-        pendingStartOffset = nextItem.songId to startMs
-        return startMs
-    }
+        (crossfadeEnabled || automixEnabled) && playbackQueue.playMode.value != PlayMode.SINGLE_LOOP && playbackQueue.size > 1
 
     private fun MediaItem.withCrossfade(autoTransition: Boolean, startPosition: Long): MediaItem {
         val songId = mediaId.toLongOrNull()
         val uri = localConfiguration?.uri?.toString()
         if (songId != null && uri != null) requestedSource = songId to uri
+        val isAllowed = crossfadeEnabled || automixEnabled
         val fadeMs = CrossfadePolicy.fadeMsFor(
             autoTransition = autoTransition,
-            enabled = crossfadeEnabled,
+            enabled = isAllowed,
             isPlaying = _isPlaying.value,
             startPositionMs = startPosition,
             autoFadeMs = pendingAutoFadeMs
         )
         if (fadeMs <= 0L) return this
         val startOffsetMs = pendingStartOffset?.takeIf { it.first == songId }?.second ?: 0L
+        val bassSwapActive = pendingBassSwap
+        pendingAutoFadeMs = 0L
+        pendingBassSwap = false
         val extras = Bundle(mediaMetadata.extras ?: Bundle()).apply {
             putLong(CrossfadePolicy.EXTRA_CROSSFADE_MS, fadeMs)
             if (startOffsetMs > 0L) putLong(CrossfadePolicy.EXTRA_CROSSFADE_START_MS, startOffsetMs)
+            if (bassSwapActive) putBoolean(CrossfadePolicy.EXTRA_BASS_SWAP, true)
         }
         return buildUpon()
             .setMediaMetadata(mediaMetadata.buildUpon().setExtras(extras).build())
             .build()
     }
 
-    // Retry（），RetryDiscard，
+    // Retryï¼ˆï¼‰ï¼ŒRetryDiscardï¼Œ
     private fun handleNetworkFailure(index: Int, startPosition: Long, attempt: Int, playWhenReady: Boolean, autoTransition: Boolean) {
         if (attempt < NETWORK_RETRY_DELAYS_MS.size) {
             val delayMs = NETWORK_RETRY_DELAYS_MS[attempt]
@@ -1471,24 +1685,51 @@ class PlayerManager(
     }
 
     private var lastAutoRecommendTriggeredSongId: Long = -1L
+    private var autoplayLoadInProgress = false
 
-    private fun maybeAutoRecommendNextSong(songId: Long, remainingMs: Long) {
+    private fun maybeAutoRecommendNextSong(songId: Long, remainingMs: Long, forceImmediate: Boolean = false) {
         val curIdx = playbackQueue.currentIndex.value
-        if (curIdx < playbackQueue.size - 1) return
-        if (remainingMs > 45_000L && playbackQueue.size > 1) return
-        if (lastAutoRecommendTriggeredSongId == songId) return
-        lastAutoRecommendTriggeredSongId = songId
+        val itemCount = playbackQueue.size
+        val singleLoop = playbackQueue.playMode.value == PlayMode.SINGLE_LOOP
+        if (singleLoop) return
 
+        // BitChord trigger condition: when queue runs low (< 3 tracks ahead) OR forced immediately on track start
+        val roomLow = (curIdx >= itemCount - 3)
+        if (!roomLow && !forceImmediate) return
+        if (lastAutoRecommendTriggeredSongId == songId && !forceImmediate) return
+        if (autoplayLoadInProgress) return
         val currentItem = playbackQueue.itemAt(curIdx) ?: return
+        lastAutoRecommendTriggeredSongId = songId
+        autoplayLoadInProgress = true
+
         scope.launch {
-            val nextTrack = effectiveRecommendationEngine.getNextRecommendedTrack(
-                currentTrack = currentItem,
-                activeQueue = playbackQueue.items.value
-            )
-            if (nextTrack != null) {
-                playbackQueue.insertNext(listOf(nextTrack))
-                saveQueueState()
-                AppLogger.i(TAG, "Smart Recommendation auto-enqueued next track: '${nextTrack.title}' by '${nextTrack.artist}'")
+            try {
+                val nextTracks = effectiveRecommendationEngine.getAutoplayBatch(
+                    seedTrack = currentItem,
+                    activeQueue = playbackQueue.items.value,
+                    limit = BitChordQueueBuilder.MAX_QUEUED_AUTOPLAY
+                )
+                if (nextTracks.isNotEmpty()) {
+                    playbackQueue.append(nextTracks)
+                    saveQueueState()
+                    preResolveAndQueueUpcoming(playbackQueue.currentIndex.value)
+                    AppLogger.i(TAG, "BitChord AutoPlay enqueued ${nextTracks.size} tracks after '${currentItem.title}'")
+                } else {
+                    val single = effectiveRecommendationEngine.getNextRecommendedTrack(
+                        currentTrack = currentItem,
+                        activeQueue = playbackQueue.items.value
+                    )
+                    if (single != null) {
+                        playbackQueue.insertNext(listOf(single))
+                        saveQueueState()
+                        preResolveAndQueueUpcoming(playbackQueue.currentIndex.value)
+                        AppLogger.i(TAG, "Recommendation single-enqueued track: '${single.title}'")
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed to load BitChord autoplay tracks", e)
+            } finally {
+                autoplayLoadInProgress = false
             }
         }
     }
@@ -1527,14 +1768,14 @@ class PlayerManager(
         }
     }
 
-    // CurrentPlay of ，Pause（Paused of ）
+    // CurrentPlay of ï¼ŒPauseï¼ˆPaused of ï¼‰
     private fun currentTrackPlayedMs(): Long {
         val now = SystemClock.elapsedRealtime()
         val ongoingPauseMs = trackLastPauseElapsedMs?.let { now - it } ?: 0L
         return (now - trackStartElapsedMs - trackPausedAccumMs - ongoingPauseMs).coerceAtLeast(0L)
     }
 
-    // /Play，Reset
+    // /Playï¼ŒReset
     private fun resetTrackTiming(startPlaying: Boolean = _isPlaying.value) {
         trackStartElapsedMs = SystemClock.elapsedRealtime()
         trackPausedAccumMs = 0L
@@ -1554,7 +1795,7 @@ class PlayerManager(
         fetchUrlAndPlay(playbackQueue.nextIndexFrom(failedIndex))
     }
 
-    // CurrentSongs（）
+    // CurrentSongsï¼ˆï¼‰
     fun reloadCurrentTrack() {
         val index = playbackQueue.currentIndex.value
         if (index >= 0 && index < playbackQueue.size) {
@@ -1575,7 +1816,7 @@ class PlayerManager(
         saveQueueState()
     }
 
-    // ExoPlayer  of  playWhenReady： of （、 of Pause）
+    // ExoPlayer  of  playWhenReadyï¼š of ï¼ˆã€ of Pauseï¼‰
     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
         _playWhenReady.value = playWhenReady
     }
@@ -1605,6 +1846,13 @@ class PlayerManager(
         reason: Int
     ) {
         progress.setPosition(newPosition.positionMs)
+        if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+            autoCrossfadeScheduledSongId = -1L
+            autoCrossfadeTriggeredSongId = -1L
+            autoCrossfadeJob?.cancel()
+            autoCrossfadeJob = null
+            pendingAutoFadeMs = 0L
+        }
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -1705,7 +1953,7 @@ class PlayerManager(
                     }
                 }
             }
-            // ：，Reset 0
+            // ï¼šï¼ŒReset 0
             if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
                 if (pendingStartPosition > 0L) {
                     progress.setPosition(pendingStartPosition)
@@ -1721,7 +1969,7 @@ class PlayerManager(
         }
     }
 
-    // READY， onPlaybackStateChanged，
+    // READYï¼Œ onPlaybackStateChangedï¼Œ
     override fun onTimelineChanged(timeline: Timeline, reason: Int) {
         progress.updateDurationFromController()
     }
@@ -1744,7 +1992,7 @@ class PlayerManager(
             _isLoading.value = false
             progress.updatePlayingState(false)
         }
-        // Tracks ExoPlayer REPEAT_MODE_ONE ， STATE_ENDED
+        // Tracks ExoPlayer REPEAT_MODE_ONE ï¼Œ STATE_ENDED
         if (playbackState == Player.STATE_ENDED && playbackQueue.playMode.value != PlayMode.SINGLE_LOOP) {
             val now = SystemClock.elapsedRealtime()
 
@@ -1951,11 +2199,12 @@ class PlayerManager(
         }.getOrNull()
 
         val effectiveItem = if (atvResult != null) {
+            val preservedCover = if (item.coverUrl.isNotBlank()) item.coverUrl else atvResult.coverUrl
             playbackQueue.updateItemMetadata(
                 songId = item.songId,
                 title = atvResult.title,
                 artist = atvResult.artist,
-                coverUrl = atvResult.coverUrl,
+                coverUrl = preservedCover,
                 videoId = atvResult.videoId,
                 album = atvResult.albumName ?: item.album
             )
@@ -1965,13 +2214,13 @@ class PlayerManager(
                 artist = atvResult.artist,
                 durationSec = atvResult.durationSec,
                 album = atvResult.albumName ?: item.album.orEmpty(),
-                coverUrl = atvResult.coverUrl
+                coverUrl = preservedCover
             )
             item.copy(
                 videoId = atvResult.videoId,
                 title = atvResult.title,
                 artist = atvResult.artist,
-                coverUrl = atvResult.coverUrl,
+                coverUrl = preservedCover,
                 durationSec = atvResult.durationSec,
                 album = atvResult.albumName ?: item.album
             )

@@ -74,7 +74,7 @@ fun MimikyuPinnedBadge(
         Icon(
             painter = painterResource(MimikyuIcons.Pin),
             contentDescription = "Pinned",
-            tint = Color(0xFF1DB954),
+            tint = MimikyuPink,
             modifier = Modifier.size(15.dp)
         )
     }
@@ -267,14 +267,7 @@ fun MimikyuWireframePlaylistCard(
                                 .align(Alignment.TopStart)
                         )
 
-                        // Bottom organic wave banner
-                        DailyMixWavyBottomBanner(
-                            mixTitle = title.ifBlank { "Daily Mix $dailyMixNumber" },
-                            waveColor = primaryAccent,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
-                        )
+
                     }
 
                     // Case 3: Genre / Mood Mix (Cover + Left Accent Bar + Title)
@@ -312,44 +305,7 @@ fun MimikyuWireframePlaylistCard(
                                 .align(Alignment.TopStart)
                         )
 
-                        // Dark gradient scrim behind bottom title
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                                .align(Alignment.BottomCenter)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f))
-                                    )
-                                )
-                        )
 
-                        // Bottom left accent bar + title
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(horizontal = 10.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                .width(4.dp)
-                                .height(15.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(primaryAccent)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = title,
-                                color = MimikyuSilver,
-                                fontSize = 13.5.sp,
-                                fontFamily = RobotoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
                     }
 
                     // Case 4: Folder Card
@@ -458,62 +414,8 @@ fun MimikyuWireframePlaylistCard(
 }
 
 /**
- * Organic wavy pastel banner at the bottom of Daily Mix cards (matches Image 1).
+ * Mimikyu Wireframe Album Card.
  */
-@Composable
-private fun DailyMixWavyBottomBanner(
-    mixTitle: String,
-    waveColor: Color,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier.height(44.dp),
-        contentAlignment = Alignment.BottomCenter
-    ) {
-        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val path = Path().apply {
-                moveTo(0f, h * 0.35f)
-                cubicTo(
-                    w * 0.22f, -h * 0.1f,
-                    w * 0.42f, h * 0.65f,
-                    w * 0.72f, h * 0.35f
-                )
-                quadraticTo(
-                    w * 0.88f, h * 0.18f,
-                    w, h * 0.42f
-                )
-                lineTo(w, h)
-                lineTo(0f, h)
-                close()
-            }
-            drawPath(path, color = waveColor)
-        }
-
-        Text(
-            text = mixTitle,
-            color = Color(0xFF121212),
-            fontSize = 13.5.sp,
-            fontFamily = RobotoFontFamily,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(bottom = 7.dp, start = 8.dp, end = 8.dp)
-        )
-    }
-}
-
-/**
- * Mimikyu Wireframe Album Card (matches Image 3 & Image 5).
- * Features:
- * - Stacked sleeve at top.
- * - Square artwork with 8dp rounded corners.
- * - Optional pinned badge in top-right.
- * - Row 1: Album name on left, optional track count on right.
- * - Row 2: Artist name in muted gray.
- */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun MimikyuWireframeAlbumCard(
     title: String,

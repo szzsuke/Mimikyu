@@ -67,7 +67,10 @@ class SongDownloadWorker(
         const val KEY_BATCH_TAG = "batch_tag"
         const val KEY_BATCH_LABEL = "batch_label"
         const val KEY_VIDEO_ID = "video_id"
+        const val KEY_PROGRESS_SONG_ID = "progress_song_id"
         const val KEY_PROGRESS_SONG_NAME = "progress_song_name"
+        const val KEY_PROGRESS_ARTIST_NAME = "progress_artist_name"
+        const val KEY_PROGRESS_COVER_URL = "progress_cover_url"
         const val KEY_PROGRESS_PERCENT = "progress_percent"
 
         fun buildInputData(
@@ -113,10 +116,10 @@ class SongDownloadWorker(
             return Result.failure(workDataOf(KEY_ERROR to "Missing parameters"))
         }
 
-        if (batchTag != "stream_cache") {
+        if (batchTag != null && batchTag != "stream_cache") {
             setForegroundAsync(buildForegroundInfo(0))
-            publishProgress(0)
         }
+        publishProgress(0)
 
         var localTemp: File? = null
         var cleanup: (() -> Unit)? = null
@@ -310,7 +313,7 @@ class SongDownloadWorker(
         val tag = batchTag
         if (tag == "stream_cache") return
         if (tag == null) {
-            notificationHelper.showSuccess(songId, songName)
+            // Single download notification suppressed per user request
             return
         }
         val settledExcludingSelf = batchSettledCount(tag)
@@ -327,7 +330,7 @@ class SongDownloadWorker(
             return
         }
         if (tag == null) {
-            notificationHelper.showFailed(songId, songName, reason)
+            // Single download notification suppressed per user request
             return
         }
         val settledExcludingSelf = batchSettledCount(tag)
@@ -370,7 +373,10 @@ class SongDownloadWorker(
     private suspend fun publishProgress(percent: Int) {
         setProgress(
             workDataOf(
+                KEY_PROGRESS_SONG_ID to songId,
                 KEY_PROGRESS_SONG_NAME to songName,
+                KEY_PROGRESS_ARTIST_NAME to artistName,
+                KEY_PROGRESS_COVER_URL to coverUrl,
                 KEY_PROGRESS_PERCENT to percent
             )
         )
@@ -587,9 +593,6 @@ class SongDownloadWorker(
                             val progress = (written * 100 / total).toInt()
                             if (progress != lastProgress) {
                                 lastProgress = progress
-                                if (batchTag == null) {
-                                    setForegroundAsync(buildForegroundInfo(progress))
-                                }
                                 publishProgress(progress)
                             }
                         }

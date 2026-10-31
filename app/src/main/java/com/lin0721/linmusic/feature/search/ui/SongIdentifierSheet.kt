@@ -706,7 +706,7 @@ private fun FoundSongCard(
                 .padding(horizontal = 12.dp, vertical = 5.dp)
         ) {
             Text(
-                text = "✓ Matched via ${song.source}",
+                text = "Matched via ${song.source}",
                 color = MimikyuGreen,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold

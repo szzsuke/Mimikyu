@@ -74,12 +74,17 @@ object YouTubeIdRegistry {
         val existing = videoIdToId[cleanVid] ?: prefs?.getLong("v2id_$cleanVid", -1L)?.takeIf { it != -1L }
         val songId = existing ?: (cleanVid.hashCode().toLong() and 0x7FFFFFFFL)
 
+        val existingCover = idToCoverUrl[songId]
+        val shouldPreserveExistingCover = !existingCover.isNullOrBlank() && 
+            (optimizedCover.isBlank() || (optimizedCover.contains("ytimg.com") && !existingCover.contains("ytimg.com")))
+        val coverToStore = if (shouldPreserveExistingCover) existingCover!! else optimizedCover
+
         idToVideoId[songId] = cleanVid
         videoIdToId[cleanVid] = songId
         if (cleanT.isNotBlank()) idToTitle[songId] = cleanT
         if (cleanA.isNotBlank()) idToArtist[songId] = cleanA
         if (cleanAlb.isNotBlank()) idToAlbumName[songId] = cleanAlb
-        if (optimizedCover.isNotBlank()) idToCoverUrl[songId] = optimizedCover
+        if (coverToStore.isNotBlank()) idToCoverUrl[songId] = coverToStore
         if (durationSec > 0) idToDurationSec[songId] = durationSec
         if (artists.isNotEmpty()) idToArtists[songId] = artists
 

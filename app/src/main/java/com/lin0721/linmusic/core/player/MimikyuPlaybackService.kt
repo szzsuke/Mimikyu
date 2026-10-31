@@ -1,4 +1,4 @@
-package com.lin0721.linmusic.core.player
+﻿package com.lin0721.linmusic.core.player
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -20,6 +20,7 @@ import androidx.core.graphics.drawable.IconCompat
 import androidx.media.app.NotificationCompat as MediaNotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -332,7 +333,7 @@ class MimikyuPlaybackService : MediaSessionService() {
 
         player = sessionPlayer
 
-        // ；REORDER_TO_FRONT  Activity
+        // ï¼›REORDER_TO_FRONT  Activity
         val sessionActivityIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
         }
@@ -361,7 +362,7 @@ class MimikyuPlaybackService : MediaSessionService() {
             }
         )
 
-        // Songs of ，
+        // Songs of ï¼Œ
         sessionPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                 super.onMediaItemTransition(mediaItem, reason)
@@ -499,6 +500,8 @@ class MimikyuPlaybackService : MediaSessionService() {
             .add(SessionCommand("ACTION_TOGGLE_LIKE", Bundle()))
             .add(SessionCommand("ACTION_TOGGLE_PLAY_MODE", Bundle()))
             .add(SessionCommand("ACTION_SET_PREFERRED_AUDIO_DEVICE", Bundle()))
+            .add(SessionCommand("ACTION_PRE_ARM_STANDBY", Bundle()))
+            .add(SessionCommand("ACTION_CLEAR_PRE_ARM", Bundle()))
             .build()
     }
 
@@ -587,6 +590,41 @@ class MimikyuPlaybackService : MediaSessionService() {
                 "ACTION_TOGGLE_PLAY_MODE" -> {
                     playerManager.rotatePlayMode()
                     updateMediaSessionButtons()
+                    return com.google.common.util.concurrent.Futures.immediateFuture(
+                        SessionResult(SessionResult.RESULT_SUCCESS)
+                    )
+                }
+                "ACTION_PRE_ARM_STANDBY" -> {
+                    val itemBundle = args.getBundle("media_item")
+                    val item = if (itemBundle != null) {
+                        runCatching { MediaItem.fromBundle(itemBundle) }.getOrNull()
+                    } else null
+                    val uri = args.getString("uri")
+                    val effectiveItem = if (item != null && item.localConfiguration?.uri != null) {
+                        item
+                    } else if (!uri.isNullOrBlank()) {
+                        val mediaId = args.getString("media_id").orEmpty()
+                        MediaItem.Builder()
+                            .setMediaId(mediaId)
+                            .setUri(uri)
+                            .apply { item?.mediaMetadata?.let { setMediaMetadata(it) } }
+                            .build()
+                    } else null
+                    val startPositionMs = args.getLong("start_position_ms", 0L)
+                    val fadeMs = args.getLong("fade_ms", 0L)
+                    val bassSwap = args.getBoolean("bass_swap", false)
+                    if (effectiveItem != null) {
+                        crossfadePlayer?.preArmStandby(effectiveItem, startPositionMs, fadeMs, bassSwap)
+                        return com.google.common.util.concurrent.Futures.immediateFuture(
+                            SessionResult(SessionResult.RESULT_SUCCESS)
+                        )
+                    }
+                    return com.google.common.util.concurrent.Futures.immediateFuture(
+                        SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE)
+                    )
+                }
+                "ACTION_CLEAR_PRE_ARM" -> {
+                    crossfadePlayer?.clearPreArmed()
                     return com.google.common.util.concurrent.Futures.immediateFuture(
                         SessionResult(SessionResult.RESULT_SUCCESS)
                     )

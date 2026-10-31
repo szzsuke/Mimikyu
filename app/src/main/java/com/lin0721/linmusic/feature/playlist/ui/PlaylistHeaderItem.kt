@@ -247,31 +247,13 @@ fun PlaylistHeaderItem(
             }
         }
 
-        // ── 2. Centered Square Cover Art with Neon Glow ──
+        // ── 2. Centered Square Cover Art ──
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 14.dp, bottom = 18.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Neon accent glow bar under bottom edge of cover
-            Box(
-                modifier = Modifier
-                    .width(190.dp)
-                    .height(6.dp)
-                    .offset(y = 106.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                Color(0xFF6200EE).copy(alpha = 0.8f),
-                                Color(0xFF3700B3).copy(alpha = 0.9f),
-                                Color(0xFF03DAC6).copy(alpha = 0.7f)
-                            )
-                        ),
-                        shape = RoundedCornerShape(3.dp)
-                    )
-            )
-
             // Centered square cover card
             Box(
                 modifier = Modifier
@@ -298,37 +280,6 @@ fun PlaylistHeaderItem(
                         .size(18.dp)
                         .align(Alignment.TopStart)
                 )
-
-                // Bottom title badge on cover (for Mimikyu mixes)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomStart)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
-                            )
-                        )
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .width(3.dp)
-                                .height(14.dp)
-                                .background(Color(0xFF6200EE), RoundedCornerShape(1.dp))
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = playlist.name,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
             }
         }
 

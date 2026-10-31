@@ -57,6 +57,8 @@ fun LazyListScope.fullPlayerPlaybackSection(
     onQueueClick: () -> Unit,
     onShareClick: () -> Unit,
     onOpenFullScreenLyrics: () -> Unit = {},
+    currentSongId: Long = 0L,
+    onDownloadClick: () -> Unit = {},
     connectedDevice: AudioDeviceInfo? = null,
     onCurrentBitmapLoaded: ((android.graphics.Bitmap) -> Unit)? = null,
     fillGap: Dp? = null,
@@ -166,7 +168,9 @@ fun LazyListScope.fullPlayerPlaybackSection(
             onOpenFullScreenLyrics = onOpenFullScreenLyrics,
             connectedDevice = connectedDevice,
             isModern = false,
-            onMoreClick = onMoreClick
+            onMoreClick = onMoreClick,
+            currentSongId = currentSongId,
+            onDownloadClick = onDownloadClick
         )
     }
 

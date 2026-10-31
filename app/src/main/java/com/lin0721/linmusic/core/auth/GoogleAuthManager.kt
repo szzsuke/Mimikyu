@@ -156,14 +156,15 @@ class GoogleAuthManager(
 
     
     suspend fun signInAsLocalUser(
-        name: String = "Guest",
-        email: String = "guest@mimikyu.app"
+        name: String = "Nishkarsh Shrivastava",
+        email: String = "nishkarsh.24bcg10106@vitbhopal.ac.in"
     ): UserProfile {
         val uid = (email.hashCode().toLong() and 0x7FFFFFFF).coerceAtLeast(100000L)
         val profile = UserProfile(
             uid = uid,
             nickname = name,
-            avatarUrl = "https://api.dicebear.com/7.x/identicon/png?seed=${email.lowercase()}"
+            avatarUrl = "https://lh3.googleusercontent.com/a/ACg8ocIS19D9sR8vj3Fh5Q51X2P0_Y=s96-c",
+            username = "nishkarsh"
         )
         try {
             val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
@@ -175,7 +176,7 @@ class GoogleAuthManager(
         }
         userPreferences.saveUserProfile(profile)
         userPreferences.saveCookies("google_auth_token=auth_$uid")
-        AppLogger.i(TAG, "Local user session activated for $name ($email)")
+        AppLogger.i(TAG, "Local Mimikyu user session activated for $name ($email)")
         return profile
     }
 

@@ -36,6 +36,7 @@ import androidx.compose.ui.res.painterResource
 import com.lin0721.linmusic.core.ui.theme.MimikyuIcons
 import com.lin0721.linmusic.core.ui.theme.BottomSheetShape
 import com.lin0721.linmusic.core.ui.theme.DownloadedGreen
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
 import com.lin0721.linmusic.core.ui.theme.LibraryVioletGradient
 import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
 import com.lin0721.linmusic.core.ui.theme.RadiusCompact
@@ -129,7 +130,7 @@ fun LibraryItemOptionsSheet(
                             Icon(
                                 painter = painterResource(MimikyuIcons.PinFilled),
                                 contentDescription = "Pinned",
-                                tint = DownloadedGreen,
+                                tint = MimikyuPink,
                                 modifier = Modifier
                                     .size(12.dp)
                                     .padding(end = MimikyuSpacing.xs)

@@ -103,11 +103,12 @@ fun List<LyricLine>.toAccompanistSyncedLyrics(
 
         val alignment = if (line.isOppositeSide) KaraokeAlignment.End else KaraokeAlignment.Start
 
+        val fixedText = LyricParser.fixWordGaps(line.text)
         val effectiveWords = if (line.words.isNotEmpty()) {
-            LyricParser.stitchSyllableGaps(line.words)
+            LyricParser.alignWordsWithLineText(line.words, fixedText)
         } else {
-            val dur = if (naturalVocalDuration > 0L) naturalVocalDuration else LyricParser.estimateTextDurationMs(line.text)
-            LyricParser.synthesizeWordTimings(line.copy(durationMs = dur, text = LyricParser.fixWordGaps(line.text)))
+            val dur = if (naturalVocalDuration > 0L) naturalVocalDuration else LyricParser.estimateTextDurationMs(fixedText)
+            LyricParser.synthesizeWordTimings(line.copy(durationMs = dur, text = fixedText))
         }
 
         if (effectiveWords.isNotEmpty()) {

@@ -71,6 +71,8 @@ class SettingsViewModel(
 
     val crossfadeEnabled = settingsPreferences.crossfadeEnabled.asState(false)
 
+    val automixEnabled = settingsPreferences.automixEnabled.asState(true)
+
     val crossfadeDurationMs = settingsPreferences.crossfadeDurationMs.asState(CrossfadePolicy.DEFAULT_DURATION_MS)
 
     val playerStyle = settingsPreferences.playerStyle.asState(SettingsPreferences.PLAYER_STYLE_CLASSIC)
@@ -236,6 +238,8 @@ class SettingsViewModel(
     fun updateResumeAfterExternalInterruption(enabled: Boolean) = launchSave { settingsPreferences.saveResumeAfterExternalInterruption(enabled) }
 
     fun updateCrossfadeEnabled(enabled: Boolean) = launchSave { settingsPreferences.saveCrossfadeEnabled(enabled) }
+
+    fun updateAutomixEnabled(enabled: Boolean) = launchSave { settingsPreferences.saveAutomixEnabled(enabled) }
 
     fun updateCrossfadeDurationMs(durationMs: Int) = launchSave { settingsPreferences.saveCrossfadeDurationMs(durationMs) }
 

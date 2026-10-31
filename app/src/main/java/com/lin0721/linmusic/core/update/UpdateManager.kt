@@ -50,6 +50,27 @@ class UpdateManager(
 
     private var downloadJob: Job? = null
 
+    fun showAnnouncementPreview() {
+        val info = UpdateInfo(
+            versionName = "1.3.0",
+            versionCode = 5,
+            isPrerelease = false,
+            changelog = """What's new in Mimikyu v1.3:
+
+- Spotify-accurate Automixing & Seamless Crossfade
+- Lyrics Page Album Art, Title & Artist Header
+- ExoPlayer-identical Progress Bar & Play/Pause Controls
+- Pink Accent Download Indicator with Tick-on-Bar Logo
+- Clean Playlist Cover Art without Text Overlays
+- Authentic Mimikyu User Profile Integration""".trimIndent(),
+            apkDownloadUrl = "https://github.com/szzsuke/Mimikyu/releases/download/v1.3.0/Mimikyu-v1.3.0-release.apk",
+            releasePageUrl = "https://github.com/szzsuke/Mimikyu/releases/tag/v1.3.0",
+            title = "Welcome to Mimikyu v1.3"
+        )
+        _uiState.value = UpdateUiState.Available(info)
+        _isDialogVisible.value = true
+    }
+
     fun checkForUpdate(manual: Boolean) {
         scope.launch {
             val currentState = _uiState.value

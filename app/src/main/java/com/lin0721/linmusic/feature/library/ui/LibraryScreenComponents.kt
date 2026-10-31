@@ -63,6 +63,7 @@ import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
 import com.lin0721.linmusic.core.ui.theme.LibraryVioletGradient
 import com.lin0721.linmusic.core.ui.theme.LibraryBlueGreenGradient
 import com.lin0721.linmusic.core.ui.theme.DownloadedGreen
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
 import com.lin0721.linmusic.core.ui.theme.RadiusCompact
 import com.lin0721.linmusic.core.ui.theme.PillRadius
 import com.lin0721.linmusic.core.ui.theme.LikedSongsAssets
@@ -377,7 +378,7 @@ fun LibraryItemRow(
                     Icon(
                         painter = painterResource(MimikyuIcons.PinFilled),
                         contentDescription = "Pinned",
-                        tint = DownloadedGreen,
+                        tint = MimikyuPink,
                         modifier = Modifier
                             .size(13.dp)
                             .padding(end = MimikyuSpacing.xs)
@@ -538,7 +539,7 @@ fun DraggablePlaylistRow(
                     Icon(
                         painter = painterResource(MimikyuIcons.PinFilled),
                         contentDescription = "Pinned",
-                        tint = DownloadedGreen,
+                        tint = MimikyuPink,
                         modifier = Modifier
                             .size(13.dp)
                             .padding(end = MimikyuSpacing.xs)

@@ -83,6 +83,7 @@ import com.lin0721.linmusic.core.ui.theme.BackgroundDark
 import com.lin0721.linmusic.core.ui.theme.SurfaceDark
 import com.lin0721.linmusic.core.ui.theme.SurfaceLight
 import com.lin0721.linmusic.core.ui.theme.MimikyuYellow
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
 import com.lin0721.linmusic.core.ui.theme.MimikyuCharcoal
 import com.lin0721.linmusic.core.ui.theme.MimikyuSilver
 import com.lin0721.linmusic.core.ui.theme.MimikyuPress
@@ -207,7 +208,7 @@ fun AccountScreen(
 
                                     val usernameHandle = userProfile?.username?.ifBlank {
                                         userProfile?.nickname?.lowercase()?.replace(" ", "_")
-                                    } ?: ""
+                                    }?.removePrefix("@") ?: ""
                                     if (usernameHandle.isNotBlank()) {
                                         Text(
                                             text = "@$usernameHandle",
@@ -382,6 +383,9 @@ fun AccountScreen(
                     }
                 }
             }
+
+
+
 
 
 

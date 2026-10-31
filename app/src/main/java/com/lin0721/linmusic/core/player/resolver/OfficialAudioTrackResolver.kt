@@ -164,7 +164,7 @@ object OfficialAudioTrackResolver {
             val atvDuration = candidate.duration?.takeIf { it > 0 } ?: currentDurationSec
             val atvAlbum = cleanMetadataText(candidate.album?.name ?: "")
             val atvCover = com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(
-                candidate.thumbnail.ifBlank { currentCoverUrl.orEmpty() },
+                if (!currentCoverUrl.isNullOrBlank()) currentCoverUrl else candidate.thumbnail,
                 com.lin0721.linmusic.core.metadata.SongArtworkEngine.PLAYER_ART_PX
             )
 

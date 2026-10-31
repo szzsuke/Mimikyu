@@ -96,6 +96,24 @@ object LyricParser {
     private val brokenHyphenRegex = Regex("""\b([a-zA-Z]+)-\s+([a-zA-Z]+)\b""")
 
     private val brokenWordGapRegexes = listOf(
+        // Slang & short forms
+        Regex("""\b(kin)\s+(da)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(sor)\s+(ta)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(try|tri)\s+(na)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(dun)\s+(no)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(ex)\s+(cuse|cuses|cused|cusing|plain|plains|plained|plaining|actly|pect|pects|pected|pecting|perience|periences|perienced|ample|amples|cept|cepts|cepted|cepting|plode|plodes|ploded|ploding|press|presses|pressed|pressing|cite|cites|cited|citing|ist|ists|isted|isting|tra|treme|tremes|tremely)\b""", RegexOption.IGNORE_CASE),
+        // Common syllable prefixes
+        Regex("""\b(re)\s+(mem|mem\w+|mind|mind\w+|peat|peat\w+|turn|turn\w+|play|play\w+|frain|fresh|lease|lease\w+|cord|gard|gret|lax|lief|move|solve|store|view|ward|vive)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(un)\s+(der|der\w+|til|able|less|lock|true|known|seen|easy|holy)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(dis)\s+(ap|ap\w+|connect|cover|cover\w+|place|play|trust|turb)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(mis)\s+(take|take\w+|sing|sing\w+|fit|read|trust)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(in)\s+(tro|tro\w+|side|stead|ter|ter\w+|visible|nocent|cred|cred\w+)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(mem)\s+(o|o\w+|ber|ber\w+)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(my|your|him|her|it|them|our)\s+(self|selves)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(sun|moon|star)\s+(shine|light|beam|rise|set|lit)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(sil)\s+(ence|ent)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(whis)\s+(per|pers|pered|pering)\b""", RegexOption.IGNORE_CASE),
+        Regex("""\b(dar)\s+(ling|lings)\b""", RegexOption.IGNORE_CASE),
         // Infantile, repeated & slang syllable words
         Regex("""\b(ma)\s+(ma)\b""", RegexOption.IGNORE_CASE),
         Regex("""\b(pa)\s+(pa)\b""", RegexOption.IGNORE_CASE),
@@ -239,6 +257,47 @@ object LyricParser {
 
     private val suffixSyllableRegex = Regex("""^(ble|tion|sion|ment|ness|ful|less|ly|ing|ed|er|est|en|es|s|ity|ous|ty|able|ible)$""", RegexOption.IGNORE_CASE)
 
+    fun alignWordsWithLineText(words: List<WordInfo>, lineText: String): List<WordInfo> {
+        if (words.isEmpty() || lineText.isBlank()) return words
+        val cleanLine = fixWordGaps(lineText).trim()
+        val result = mutableListOf<WordInfo>()
+        var textIdx = 0
+
+        for (i in words.indices) {
+            val w = words[i]
+            val wClean = w.text.replace(Regex("""[^\w']"""), "").lowercase()
+            if (wClean.isEmpty()) {
+                result.add(w)
+                continue
+            }
+
+            var foundPos = -1
+            for (p in textIdx until cleanLine.length) {
+                val subEnd = minOf(p + wClean.length, cleanLine.length)
+                val sub = cleanLine.substring(p, subEnd).replace(Regex("""[^\w']"""), "").lowercase()
+                if (sub == wClean) {
+                    foundPos = p
+                    break
+                }
+            }
+
+            if (foundPos != -1) {
+                var endPos = foundPos + wClean.length
+                while (endPos < cleanLine.length && !cleanLine[endPos].isLetterOrDigit() && cleanLine[endPos] != ' ') {
+                    endPos++
+                }
+                val hasSpaceInText = (endPos < cleanLine.length && cleanLine[endPos].isWhitespace()) || (i == words.lastIndex)
+                val wTrimmed = w.text.trimEnd()
+                val newText = if (hasSpaceInText && i < words.lastIndex) "$wTrimmed " else wTrimmed
+                result.add(w.copy(text = newText))
+                textIdx = endPos
+            } else {
+                result.add(w)
+            }
+        }
+        return stitchSyllableGaps(result)
+    }
+
     fun stitchSyllableGaps(words: List<WordInfo>): List<WordInfo> {
         if (words.size <= 1) return words
         val result = mutableListOf<WordInfo>()
@@ -352,7 +411,7 @@ object LyricParser {
     }
 
     fun sanitizeLyricText(text: String): String {
-        return fixWordGaps(unescapeXml(text))
+        return com.lin0721.linmusic.core.metadata.stripEmojis(fixWordGaps(unescapeXml(text)))
     }
 
     fun escapeXml(text: String): String {
@@ -392,17 +451,16 @@ object LyricParser {
             val lineStart = formatTtmlTimestamp(line.timeMs)
             val lineEnd = formatTtmlTimestamp(line.timeMs + line.durationMs)
             sb.append("""      <p begin="$lineStart" end="$lineEnd">""").append("\n")
-            val words = if (line.words.isNotEmpty()) line.words else synthesizeWordTimings(line)
-            val isSpaced = line.text.contains(" ")
-            for ((idx, word) in words.withIndex()) {
+            val cleanText = fixWordGaps(line.text)
+            val words = if (line.words.isNotEmpty()) {
+                alignWordsWithLineText(line.words, cleanText)
+            } else {
+                synthesizeWordTimings(line.copy(text = cleanText))
+            }
+            for (word in words) {
                 val wStart = formatTtmlTimestamp(line.timeMs + word.startOffsetMs)
                 val wEnd = formatTtmlTimestamp(line.timeMs + word.startOffsetMs + word.durationMs)
-                val displayText = if (isSpaced && idx < words.lastIndex) {
-                    if (word.text.endsWith(" ")) word.text else "${word.text} "
-                } else {
-                    word.text
-                }
-                sb.append("""        <span begin="$wStart" end="$wEnd">${escapeXml(displayText)}</span>""").append("\n")
+                sb.append("""        <span begin="$wStart" end="$wEnd">${escapeXml(word.text)}</span>""").append("\n")
             }
             sb.append("      </p>\n")
         }
@@ -481,13 +539,16 @@ object LyricParser {
             val lineEndTime = parseTtmlTimestamp(endStr) ?: lineStartTime
             val lineDuration = (lineEndTime - lineStartTime).coerceAtLeast(0L)
 
-            val rawLineText = sanitizeLyricText(tagStripRegex.replace(body, "").replace(Regex("""\s+"""), " ").trim())
-            if (rawLineText.isEmpty() || isJunkOrCreditLine(rawLineText, lineStartTime)) return@mapNotNull null
-
             val spanMatches = spanRegex.findAll(body).toList()
             val wordsList = mutableListOf<WordInfo>()
-            var searchIndex = 0
 
+            val hasAnyExplicitTrailingSpace = spanMatches.any { match ->
+                val spanBody = match.groupValues[2]
+                val rawWord = unescapeXml(tagStripRegex.replace(spanBody, ""))
+                spanBody.endsWith(" ") || rawWord.endsWith(" ")
+            }
+
+            // 1. Extract genuine word spans without XML formatting whitespace contamination
             for (i in spanMatches.indices) {
                 val spanMatch = spanMatches[i]
                 val spanAttrs = spanMatch.groupValues[1]
@@ -498,50 +559,50 @@ object LyricParser {
 
                 val wStartTime = parseTtmlTimestamp(wBeginStr) ?: lineStartTime
                 val wEndTime = parseTtmlTimestamp(wEndStr) ?: wStartTime
-                val rawWord = sanitizeLyricText(tagStripRegex.replace(spanBody, ""))
+                val rawWord = unescapeXml(tagStripRegex.replace(spanBody, ""))
                 val cleanWord = rawWord.trim()
 
                 if (cleanWord.isNotEmpty()) {
-                    var hasSpace = spanBody.endsWith(" ") || rawWord.endsWith(" ")
-
-                    if (!hasSpace && i < spanMatches.lastIndex) {
-                        val nextSpan = spanMatches[i + 1]
-                        val inBetween = body.substring((spanMatch.range.last + 1).coerceAtMost(body.length), nextSpan.range.first.coerceAtMost(body.length))
-                        if (inBetween.contains(" ") && !inBetween.contains("\n") && !inBetween.contains("\r")) {
-                            hasSpace = true
+                    val hasSpace = if (hasAnyExplicitTrailingSpace) {
+                        spanBody.endsWith(" ") || rawWord.endsWith(" ") || run {
+                            if (i < spanMatches.lastIndex) {
+                                val nextSpan = spanMatches[i + 1]
+                                val inBetween = body.substring(
+                                    (spanMatch.range.last + 1).coerceAtMost(body.length),
+                                    nextSpan.range.first.coerceAtMost(body.length)
+                                )
+                                inBetween.contains(" ") && !inBetween.contains("\n") && !inBetween.contains("\r")
+                            } else false
                         }
+                    } else {
+                        // In unspaced TTML where no spans carry trailing whitespace, separate spans represent distinct words
+                        i < spanMatches.lastIndex
                     }
 
-                    if (!hasSpace && rawLineText.isNotEmpty()) {
-                        val wordIdx = rawLineText.indexOf(cleanWord, searchIndex, ignoreCase = true)
-                        if (wordIdx != -1) {
-                            val nextCharIdx = wordIdx + cleanWord.length
-                            if (nextCharIdx < rawLineText.length && rawLineText[nextCharIdx].isWhitespace()) {
-                                hasSpace = true
-                            }
-                            searchIndex = nextCharIdx
-                        }
-                    }
-
-                    val wText = if (hasSpace) "$cleanWord " else cleanWord
+                    val wText = if (hasSpace && i < spanMatches.lastIndex) "$cleanWord " else cleanWord
                     val startOffset = (wStartTime - lineStartTime).coerceAtLeast(0L)
                     val duration = (wEndTime - wStartTime).coerceAtLeast(0L)
                     wordsList.add(WordInfo(wText, startOffset, duration))
                 }
             }
 
-            val stitchedWords = stitchSyllableGaps(wordsList)
-            val fullText = if (rawLineText.isNotBlank()) {
-                rawLineText
-            } else if (stitchedWords.isNotEmpty()) {
-                sanitizeLyricText(stitchedWords.joinToString("") { it.text }.trim())
+            // 2. Reconstruct line text from actual word tokens to preserve multisyllabic words intact
+            val rawLineText = if (wordsList.isNotEmpty()) {
+                fixWordGaps(wordsList.joinToString("") { it.text }.trim())
             } else {
-                sanitizeLyricText(tagStripRegex.replace(body, "").trim())
+                fixWordGaps(sanitizeLyricText(tagStripRegex.replace(body, "").replace(Regex("""\s+"""), " ").trim()))
+            }
+            if (rawLineText.isEmpty() || isJunkOrCreditLine(rawLineText, lineStartTime)) return@mapNotNull null
+
+            // 3. Align and stitch any split syllables against the clean reconstructed line text
+            val alignedWords = alignWordsWithLineText(wordsList, rawLineText)
+            val fullText = rawLineText.ifEmpty {
+                sanitizeLyricText(alignedWords.joinToString("") { it.text }.trim())
             }
             if (fullText.isEmpty() || isJunkOrCreditLine(fullText, lineStartTime)) return@mapNotNull null
 
-            val wordsSpan = if (stitchedWords.isNotEmpty()) {
-                stitchedWords.maxOf { it.endOffsetMs }
+            val wordsSpan = if (alignedWords.isNotEmpty()) {
+                alignedWords.maxOf { it.endOffsetMs }
             } else 0L
             val finalDuration = maxOf(lineDuration, wordsSpan)
 
@@ -559,7 +620,7 @@ object LyricParser {
                 timeMs = lineStartTime,
                 durationMs = finalDuration,
                 text = fullText,
-                words = stitchedWords,
+                words = alignedWords,
                 isOppositeSide = isOpposite
             )
         }.toList().sortedBy { it.timeMs }
@@ -599,15 +660,15 @@ object LyricParser {
                     fullTextBuilder.append(wordText)
                 }
 
-                val stitchedWords = stitchSyllableGaps(wordsList)
                 val fullText = fixWordGaps(fullTextBuilder.toString().trim())
                 if (fullText.isBlank() || isJunkOrCreditLine(fullText, lineStartTime)) return@let null
+                val alignedWords = alignWordsWithLineText(wordsList, fullText)
 
                 LyricLine(
                     timeMs = lineStartTime,
                     durationMs = lineDuration,
                     text = fullText,
-                    words = stitchedWords
+                    words = alignedWords
                 )
             }
         }.sortedBy { it.timeMs }
@@ -638,15 +699,15 @@ object LyricParser {
                     fullTextBuilder.append(wordText)
                 }
 
-                val stitchedWords = stitchSyllableGaps(wordsList)
                 val fullText = fixWordGaps(fullTextBuilder.toString().trim())
                 if (fullText.isBlank() || isJunkOrCreditLine(fullText, lineStartTime)) return@let null
+                val alignedWords = alignWordsWithLineText(wordsList, fullText)
 
                 LyricLine(
                     timeMs = lineStartTime,
                     durationMs = lineDuration,
                     text = fullText,
-                    words = stitchedWords
+                    words = alignedWords
                 )
             }
         }.sortedBy { it.timeMs }
@@ -764,10 +825,9 @@ object LyricParser {
                     }
                 }
 
-                val stitchedWords = stitchSyllableGaps(wordsList)
                 val fullText = sanitizeLyricText(cleanBracketVocals(
-                    if (stitchedWords.isNotEmpty()) {
-                        fixWordGaps(stitchedWords.joinToString("") { it.text }.trim())
+                    if (wordsList.isNotEmpty()) {
+                        fixWordGaps(wordsList.joinToString("") { it.text }.trim())
                     } else {
                         tagStripRegex.replace(cleanedContent, "").trim()
                     }
@@ -776,15 +836,16 @@ object LyricParser {
                 if (fullText.isEmpty() || isJunkOrCreditLine(fullText, timeMs)) {
                     null
                 } else {
-                    val totalDuration = if (stitchedWords.isNotEmpty()) {
-                        val lastWord = stitchedWords.last()
+                    val alignedWords = alignWordsWithLineText(wordsList, fullText)
+                    val totalDuration = if (alignedWords.isNotEmpty()) {
+                        val lastWord = alignedWords.last()
                         lastWord.startOffsetMs + lastWord.durationMs
                     } else 0L
                     LyricLine(
                         timeMs = timeMs,
                         durationMs = totalDuration,
                         text = fullText,
-                        words = stitchedWords,
+                        words = alignedWords,
                         isGap = false,
                         isSynced = true,
                         isOppositeSide = lineIsOpposite

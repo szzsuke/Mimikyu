@@ -68,6 +68,12 @@ fun AboutSettingsView(viewModel: SettingsViewModel) {
                     onClick = { updateManager.checkForUpdate(manual = true) }
                 )
                 HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                SettingsRow(
+                    title = "Announcement Example",
+                    subtitle = "Preview how Firestore announcements look to users",
+                    onClick = { updateManager.showAnnouncementPreview() }
+                )
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                 SettingsSwitchRow(
                     title = "Check Updates Automatically",
                     subtitle = "Check for updates in the background on startup",

@@ -157,6 +157,28 @@ class MediaControllerHolder(private val context: Context) {
     }
 
     // deviceId  -1 ， Service  of  AudioDeviceInfo
+    fun preArmStandby(mediaItem: MediaItem, startPositionMs: Long, fadeMs: Long, bassSwap: Boolean) {
+        val args = Bundle().apply {
+            runCatching { putBundle("media_item", mediaItem.toBundle()) }
+            putString("media_id", mediaItem.mediaId)
+            putString("uri", mediaItem.localConfiguration?.uri?.toString())
+            putLong("start_position_ms", startPositionMs)
+            putLong("fade_ms", fadeMs)
+            putBoolean("bass_swap", bassSwap)
+        }
+        controller?.sendCustomCommand(
+            SessionCommand("ACTION_PRE_ARM_STANDBY", Bundle()),
+            args
+        )
+    }
+
+    fun clearPreArmed() {
+        controller?.sendCustomCommand(
+            SessionCommand("ACTION_CLEAR_PRE_ARM", Bundle()),
+            Bundle()
+        )
+    }
+
     fun setPreferredAudioDevice(deviceId: Int) {
         controller?.sendCustomCommand(
             SessionCommand("ACTION_SET_PREFERRED_AUDIO_DEVICE", Bundle()),

@@ -80,8 +80,8 @@ class LoginViewModel(
     }
 
     fun quickLogin(
-        name: String = "Guest",
-        email: String = "guest@mimikyu.app",
+        name: String = "Nishkarsh Shrivastava",
+        email: String = "nishkarsh.24bcg10106@vitbhopal.ac.in",
         onSuccess: (UserProfile) -> Unit
     ) {
         viewModelScope.launch {

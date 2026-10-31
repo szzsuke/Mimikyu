@@ -39,6 +39,7 @@ fun ProgressSection(
     currentPositionProvider: () -> Long,
     duration: Long,
     onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier.padding(horizontal = MimikyuSpacing.lg),
     chorusStartMs: Long? = null,
     isModern: Boolean = false
 ) {
@@ -61,9 +62,8 @@ fun ProgressSection(
     val trackHeight = 7.dp
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = MimikyuSpacing.lg)
             .padding(top = MimikyuSpacing.sm)
     ) {
         var trackWidthPx by remember { mutableFloatStateOf(0f) }

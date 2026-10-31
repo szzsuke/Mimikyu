@@ -27,13 +27,32 @@ private val LEADING_SEPARATORS_REGEX = Regex("""^\s*[-–—|/:]\s*""")
 private val MULTI_SPACE_REGEX = Regex("""\s+""")
 
 /**
- * Cleans YouTube upload noise from metadata strings (titles and artist names)
+ * Comprehensive Unicode regex matching all Emoji characters, pictographs,
+ * symbols, Dingbats, flags, and variations.
+ */
+val EMOJI_REGEX = Regex(
+    "[" +
+    "\\u2600-\\u27BF\\u2300-\\u23FF\\u2B50-\\u2B55\\u203C\\u2049\\u2122\\u2139\\u2194-\\u2199\\u21A9-\\u21AA" +
+    "\\u25AA\\u25AB\\u25B6\\u25C0\\u25FB-\\u25FE\\u2934\\u2935\\u2B05-\\u2B07\\u2B1B\\u2B1C\\u3030\\u303D\\u3297\\u3299" +
+    "\\uFE00-\\uFE0F\\u200D\\u20E3" +
+    "]|" +
+    "[\\uD83C-\\uD83E][\\uDC00-\\uDFFF]"
+)
+
+fun stripEmojis(raw: String?): String {
+    if (raw.isNullOrBlank()) return ""
+    return EMOJI_REGEX.replace(raw, "").trim()
+}
+
+/**
+ * Cleans YouTube upload noise and strips all emojis from metadata strings (titles and artist names)
  * before UI display and before querying iTunes / MusicBrainz matchers.
  */
 fun cleanMetadataText(raw: String?): String {
     if (raw.isNullOrBlank()) return ""
 
-    var text = raw.trim()
+    // 0. Always strip all emojis from title/artist/metadata
+    var text = EMOJI_REGEX.replace(raw, "").trim()
 
     // 1. Always strip trailing "- Topic" (YouTube auto-generated channel suffix)
     text = TRAILING_TOPIC_REGEX.replace(text, "")
@@ -50,8 +69,8 @@ fun cleanMetadataText(raw: String?): String {
     // 4. Collapse excess whitespace
     text = MULTI_SPACE_REGEX.replace(text, " ").trim()
 
-    // Fallback to original trimmed text if stripping removed everything
-    return text.ifBlank { raw.trim() }
+    // Fallback to original stripped text if non-musical stripping removed everything
+    return text.ifBlank { EMOJI_REGEX.replace(raw, "").trim() }
 }
 
 val KNOWN_CHANNELS_AND_CURATORS = setOf(

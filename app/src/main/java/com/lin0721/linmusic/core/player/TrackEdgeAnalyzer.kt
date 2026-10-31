@@ -80,7 +80,7 @@ class TrackEdgeAnalyzer(private val context: Context) {
         var codec: MediaCodec? = null
         try {
             if (uri.startsWith("http")) {
-                extractor.setDataSource(uri, emptyMap())
+                extractor.setDataSource(uri, mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"))
             } else {
                 extractor.setDataSource(context, Uri.parse(uri), null)
             }
