@@ -18,6 +18,7 @@ import com.lin0721.linmusic.feature.artist.ui.ArtistViewModel
 import com.lin0721.linmusic.feature.artist.ui.ArtistMvPlayerViewModel
 import com.lin0721.linmusic.feature.search.ui.SearchViewModel
 import com.lin0721.linmusic.feature.search.ui.PlaylistCategoryViewModel
+import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 
@@ -35,7 +36,25 @@ val viewModelModule = module {
     viewModelOf(::ArtistMvPlayerViewModel)
     viewModelOf(::SearchViewModel)
     viewModelOf(::PlaylistCategoryViewModel)
-    viewModelOf(::LibraryViewModel)
+    viewModel {
+        LibraryViewModel(
+            syncProfileAfterLoginUseCase = get(),
+            createRepository = get(),
+            libraryRepository = get(),
+            playlistRepository = get(),
+            artistRepository = get(),
+            userPlaylistRepository = get(),
+            likedSongsRepository = get(),
+            userPreferences = get(),
+            playerManager = get(),
+            context = get(),
+            resourceProvider = get(),
+            playlistMutationBus = get(),
+            songDownloadManager = get(),
+            downloadPreferences = getOrNull(),
+            spotifyRepository = getOrNull()
+        )
+    }
     viewModelOf(::RecentPlayViewModel)
     viewModelOf(::ListenDataViewModel)
     viewModelOf(::LocalMusicViewModel)

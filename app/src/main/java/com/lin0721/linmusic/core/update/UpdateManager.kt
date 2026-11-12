@@ -71,6 +71,25 @@ class UpdateManager(
         _isDialogVisible.value = true
     }
 
+    fun checkForStartupUpdate() {
+        scope.launch {
+            val currentState = _uiState.value
+            if (currentState is UpdateUiState.Downloading || currentState is UpdateUiState.ReadyToInstall) return@launch
+
+            val allowPrerelease = settingsPreferences.allowPrereleaseChannel.first()
+            updateRepository.fetchLatestUpdate(allowPrerelease)
+                .onSuccess { info ->
+                    if (info != null) {
+                        _uiState.value = UpdateUiState.Available(info)
+                        _isDialogVisible.value = true
+                    }
+                }
+                .onFailure { e ->
+                    AppLogger.w(TAG, "Startup update check failed: ${e.message}")
+                }
+        }
+    }
+
     fun checkForUpdate(manual: Boolean) {
         scope.launch {
             val currentState = _uiState.value

@@ -93,38 +93,13 @@ fun MimikyuBottomOverlay(
     onOverlayHeightChanged: (Dp) -> Unit = {}
 ) {
     val density = LocalDensity.current
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-    ) {
-        // 0. Create
-        AnimatedVisibility(
-            visible = showCreateSheet && !isLoginScreenVisible,
-            enter = slideInVertically(
-                initialOffsetY = { it / 2 },
-                animationSpec = tween(250, easing = FastOutSlowInEasing)
-            ) + fadeIn(tween(200)),
-            exit = slideOutVertically(
-                targetOffsetY = { it / 2 },
-                animationSpec = tween(200, easing = FastOutSlowInEasing)
-            ) + fadeOut(tween(150))
-        ) {
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = MimikyuSpacing.md)
-                    .padding(bottom = 12.dp)
-            ) {
-                CreatePopupMenu(
-                    onDismiss = onCreateDismiss,
-                    onLoginRequest = {
-                        // TODO:
-                    }
-                )
-            }
-        }
+    val windowSizeClass = LocalMimikyuWindowSizeClass.current
 
-        // Play + Dock Overlays: Transparent with vertical gradient as in Mimikyu UI
-        val windowSizeClass = LocalMimikyuWindowSizeClass.current
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        // Layer 1: Play + Dock Overlays (Background gradient, MiniPlayerCard, MimikyuNavigationBar)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -137,10 +112,15 @@ fun MimikyuBottomOverlay(
                     )
                 )
                 .onSizeChanged {
-                    onOverlayHeightChanged(with(density) { it.height.toDp() })
+                    if (!showCreateSheet) {
+                        onOverlayHeightChanged(with(density) { it.height.toDp() })
+                    }
                 }
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 // Download
                 AnimatedVisibility(
                     visible = false,
@@ -152,8 +132,6 @@ fun MimikyuBottomOverlay(
                 }
 
                 if (windowSizeClass == MimikyuWindowSizeClass.Expanded) {
-                    // ：Tab  + Play，，
-                    // ；
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -170,7 +148,6 @@ fun MimikyuBottomOverlay(
                             exit = shrinkVertically() + fadeOut(),
                             modifier = Modifier.weight(1f).fillMaxHeight()
                         ) {
-                            // Collapse Tab ；
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
@@ -193,11 +170,9 @@ fun MimikyuBottomOverlay(
                             }
                         }
 
-                        // ，、，/。
-                        // and  of  spacedBy，/ 8dp
                         if (!isPanelDocked) {
                             AnimatedVisibility(
-                                visible = currentTrack != null && !isLoginScreenVisible && !isMvFullscreen && !isMvCommentsOpen,
+                                visible = currentTrack != null && !isLoginScreenVisible && !isMvFullscreen && !isMvCommentsOpen && !showCreateSheet,
                                 enter = fadeIn() + expandHorizontally(),
                                 exit = fadeOut() + shrinkHorizontally(),
                                 modifier = Modifier.fillMaxHeight()
@@ -221,7 +196,6 @@ fun MimikyuBottomOverlay(
                                     isLiked = isMiniPlayerLiked,
                                     onLikeClick = onMiniPlayerLikeClick,
                                     expanded = true,
-                                    // Expand，
                                     modifier = Modifier
                                         .padding(start = MimikyuSpacing.sm)
                                         .width(rememberMimikyuPlayerPanelWidth())
@@ -231,12 +205,24 @@ fun MimikyuBottomOverlay(
                         }
                     }
                 } else {
-                    // ：Play、，（）
+                    // Compact / Phone: MiniPlayerCard + MimikyuNavigationBar
                     AnimatedVisibility(
-                        visible = currentTrack != null && !isLoginScreenVisible && !isMvFullscreen && !isMvCommentsOpen,
-                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
-                        modifier = Modifier.fillMaxWidth()
+                        visible = currentTrack != null && !isLoginScreenVisible && !isMvFullscreen && !isMvCommentsOpen && !showCreateSheet,
+                        enter = slideInVertically(
+                            initialOffsetY = { it },
+                            animationSpec = tween(240, easing = FastOutSlowInEasing)
+                        ) + expandVertically(
+                            animationSpec = tween(240, easing = FastOutSlowInEasing)
+                        ) + fadeIn(tween(180)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it },
+                            animationSpec = tween(200, easing = FastOutSlowInEasing)
+                        ) + shrinkVertically(
+                            animationSpec = tween(200, easing = FastOutSlowInEasing)
+                        ) + fadeOut(tween(160)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .zIndex(0f)
                     ) {
                         MiniPlayerCard(
                             hazeState = hazeState,
@@ -265,7 +251,8 @@ fun MimikyuBottomOverlay(
                     AnimatedVisibility(
                         visible = !isLoginScreenVisible && !isMvFullscreen && !isMvCommentsOpen,
                         enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
+                        exit = shrinkVertically() + fadeOut(),
+                        modifier = Modifier.zIndex(1f)
                     ) {
                         MimikyuNavigationBar(
                             currentScreen = currentScreen,
@@ -278,6 +265,38 @@ fun MimikyuBottomOverlay(
                     }
                 }
             }
+        }
+
+        // Layer 2: CreatePopupMenu (Decoupled overlay anchored immediately above the navigation bar)
+        val bottomMenuPadding = if (windowSizeClass == MimikyuWindowSizeClass.Expanded) {
+            ExpandedBottomBarHeight + 16.dp
+        } else {
+            58.dp
+        }
+
+        AnimatedVisibility(
+            visible = showCreateSheet && !isLoginScreenVisible,
+            enter = slideInVertically(
+                initialOffsetY = { it / 3 },
+                animationSpec = tween(260, easing = FastOutSlowInEasing)
+            ) + fadeIn(tween(200)),
+            exit = slideOutVertically(
+                targetOffsetY = { it / 3 },
+                animationSpec = tween(190, easing = FastOutSlowInEasing)
+            ) + fadeOut(tween(150)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(2f)
+                .navigationBarsPadding()
+                .padding(bottom = bottomMenuPadding)
+                .padding(horizontal = MimikyuSpacing.md)
+        ) {
+            CreatePopupMenu(
+                onDismiss = onCreateDismiss,
+                onLoginRequest = {
+                    // TODO:
+                }
+            )
         }
     }
 }

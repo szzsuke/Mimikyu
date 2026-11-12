@@ -244,12 +244,12 @@ class MimikyuPlaybackService : MediaSessionService() {
             }
         }
 
-        val mediaSourceFactory = DefaultMediaSourceFactory(dynamicDataSourceFactory)
         val audioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
             .build()
-        val loadControl = DefaultLoadControl.Builder()
+
+        fun createLoadControl() = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ 30_000,
                 /* maxBufferMs = */ 50_000,
@@ -262,14 +262,16 @@ class MimikyuPlaybackService : MediaSessionService() {
 
         val primaryPlayer = ExoPlayer.Builder(this)
             .setBandwidthMeter(bandwidthMeter)
-            .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(loadControl)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dynamicDataSourceFactory))
+            .setLoadControl(createLoadControl())
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         val secondaryPlayer = ExoPlayer.Builder(this)
             .setBandwidthMeter(bandwidthMeter)
-            .setMediaSourceFactory(mediaSourceFactory)
-            .setLoadControl(loadControl)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dynamicDataSourceFactory))
+            .setLoadControl(createLoadControl())
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         val audioSessionListener = object : Player.Listener {
@@ -296,6 +298,9 @@ class MimikyuPlaybackService : MediaSessionService() {
         )
         sessionPlayer.setMetadataTransformer { base ->
             externalLyricCoordinator.applyToMediaMetadata(base.buildUpon(), base)
+        }
+        sessionPlayer.onCrossfadeActiveChanged = { isCrossfading ->
+            playerManager.setMixing(isCrossfading)
         }
         crossfadePlayer = sessionPlayer
 

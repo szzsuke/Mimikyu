@@ -48,6 +48,7 @@ object MimikyuIcons {
     @DrawableRes val Queue = R.drawable.ic_mimikyu_queue_24
     @DrawableRes val AddToQueue = R.drawable.ic_mimikyu_add_to_queue_24
     @DrawableRes val Playlist = R.drawable.ic_mimikyu_playlist_24
+    @DrawableRes val PlaylistNote = R.drawable.ic_mimikyu_playlist_note_24
     @DrawableRes val AddToPlaylist = R.drawable.ic_mimikyu_add_to_playlist_24
     @DrawableRes val Album = R.drawable.ic_mimikyu_album_24
     @DrawableRes val Track = R.drawable.ic_mimikyu_track_24

@@ -46,7 +46,9 @@ class UpdateRepository(private val api: GithubReleaseApi) {
                 }
                 .maxByOrNull { it.versionCode }
 
-            val hasUpdate = candidate != null && candidate.versionCode > BuildConfig.VERSION_CODE
+            val currentCode = maxOf(BuildConfig.VERSION_CODE, VersionCodeResolver.resolve(BuildConfig.VERSION_NAME) ?: 0)
+            val currentTag = if (BuildConfig.VERSION_NAME.startsWith("v")) BuildConfig.VERSION_NAME else "v${BuildConfig.VERSION_NAME}"
+            val hasUpdate = candidate != null && (candidate.versionCode > currentCode || (candidate.versionName != currentTag && candidate.versionCode >= currentCode))
             Result.success(if (hasUpdate) candidate else null)
         } catch (e: Exception) {
             Result.failure(e)

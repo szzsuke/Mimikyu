@@ -1,4 +1,4 @@
-﻿package com.lin0721.linmusic.core.player.recommendation
+package com.lin0721.linmusic.core.player.recommendation
 
 import com.lin0721.linmusic.core.log.AppLogger
 import com.lin0721.linmusic.core.metadata.cleanMetadataText
@@ -19,7 +19,7 @@ private const val TAG = "InnerTubeRadioEngine"
  * - videoId: Seed track
  * - playlistId: "RDAMVM" + videoId (YouTube Music's prefix for infinite, algorithmic track radio)
  *
- * This taps directly into Google's deep-learning music graph for Mimikyu-tier candidate generation.
+ * Direct port of BitChord's radio candidate retrieval tapping into Google's deep-learning music graph.
  */
 object InnerTubeRadioEngine {
 
@@ -28,34 +28,42 @@ object InnerTubeRadioEngine {
      */
     suspend fun getRadioCandidates(
         seedVideoId: String,
-        count: Int = 30
+        count: Int = 35
     ): List<QueueItem> = withContext(Dispatchers.IO) {
         if (seedVideoId.isBlank()) return@withContext emptyList()
 
         try {
-            // Pass RDAMVM + seedVideoId for YouTube Music's algorithmic radio graph
+            // 1. Primary: Try RDAMVM algorithmic radio endpoint (exact BitChord radio mix)
             val radioPlaylistId = if (seedVideoId.startsWith("RDAMVM")) seedVideoId else "RDAMVM$seedVideoId"
             val endpoint = WatchEndpoint(
                 videoId = seedVideoId,
                 playlistId = radioPlaylistId
             )
 
-            val nextResult = YouTube.next(endpoint).getOrNull()
-            val candidateItems = nextResult?.items.orEmpty().filter { it.id.isNotBlank() }
+            val primaryResult = YouTube.next(endpoint).getOrNull()
+            var candidateItems = primaryResult?.items.orEmpty().filter { it.id.isNotBlank() }
 
-            // If radio items were sparse, check relatedEndpoint
-            val finalItems = if (candidateItems.size >= 15) {
-                candidateItems
-            } else {
-                val related = nextResult?.relatedEndpoint?.let { relEndpoint ->
-                    YouTube.related(relEndpoint).getOrNull()?.songs.orEmpty()
-                } ?: emptyList()
-                (candidateItems + related).distinctBy { it.id }
+            // 2. Secondary fallback: If RDAMVM was empty or refused, query bare video next endpoint
+            if (candidateItems.isEmpty()) {
+                val fallbackEndpoint = WatchEndpoint(videoId = seedVideoId)
+                val fallbackResult = YouTube.next(fallbackEndpoint).getOrNull()
+                candidateItems = fallbackResult?.items.orEmpty().filter { it.id.isNotBlank() }
             }
 
-            AppLogger.d(TAG, "InnerTube RDAMVM radio for $seedVideoId returned ${finalItems.size} candidates")
+            // 3. Related tracks: augment with related songs if sparse
+            val relatedItems = if (candidateItems.size < 15) {
+                primaryResult?.relatedEndpoint?.let { relEndpoint ->
+                    YouTube.related(relEndpoint).getOrNull()?.songs.orEmpty()
+                } ?: emptyList()
+            } else emptyList()
 
-            finalItems.take(count).mapNotNull { song ->
+            val combined = (candidateItems + relatedItems)
+                .filter { it.id.isNotBlank() && it.id != seedVideoId }
+                .distinctBy { it.id }
+
+            AppLogger.d(TAG, "InnerTube radio for $seedVideoId returned ${combined.size} raw candidates")
+
+            combined.take(count).mapNotNull { song ->
                 toQueueItem(song)
             }
         } catch (e: Exception) {
@@ -78,8 +86,10 @@ object InnerTubeRadioEngine {
             if (!cached.isNullOrBlank()) return@withContext cached
         }
 
-        // 2. Search YouTube Music for the exact track
-        val query = "$title $artist".trim()
+        // 2. Clean query using BitChord title & artist normalizers for precise matching
+        val normTitle = BitChordQueueBuilder.normalisedTitle(title)
+        val primaryArtist = BitChordQueueBuilder.artistSet(artist).firstOrNull().orEmpty()
+        val query = if (primaryArtist.isNotBlank()) "$normTitle $primaryArtist" else normTitle
         if (query.isBlank()) return@withContext null
 
         return@withContext runCatching {
@@ -108,13 +118,17 @@ object InnerTubeRadioEngine {
 
     private fun toQueueItem(song: SongItem): QueueItem? {
         return try {
-            // Drop video uploads and widescreen video clips to ensure pure catalogue audio
+            val rawTitle = cleanMetadataText(song.title)
+            val rawArtist = cleanMetadataText(song.artists.joinToString(", ") { it.name })
+            if (rawTitle.isBlank()) return null
 
-            val (cleanTitle, cleanArtist) = com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist(
-                song.title,
-                song.artists.joinToString(", ") { it.name }
+            val (extractedTitle, extractedArtist) = com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist(
+                rawTitle,
+                rawArtist
             )
-            if (cleanTitle.isBlank()) return null
+
+            val cleanTitle = if (extractedTitle.isNotBlank()) extractedTitle else rawTitle
+            val cleanArtist = if (extractedArtist.isNotBlank()) extractedArtist else rawArtist.ifBlank { "Unknown Artist" }
 
             // Discard titles that are purely video compilations
             if (VIDEO_WORD.containsMatchIn(cleanTitle) && !cleanTitle.contains("video games", ignoreCase = true)) {

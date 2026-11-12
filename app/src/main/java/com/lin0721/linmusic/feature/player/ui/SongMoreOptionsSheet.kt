@@ -54,6 +54,8 @@ fun SongMoreOptionsSheet(
     onQualitySelected: (String) -> Unit,
     isIntelligence: Boolean,
     onToggleIntelligence: (Boolean) -> Unit,
+    automixEnabled: Boolean = true,
+    onToggleAutomix: () -> Unit = {},
     onStartSimilarRoaming: () -> Unit,
     onInsertSimilarSongs: () -> Unit,
     onCollectClick: () -> Unit,
@@ -176,15 +178,15 @@ fun SongMoreOptionsSheet(
                     }
                 )
 
-                // 4. Heartbeat Mode
+                // 4. Automix Mode
                 OptionRow(
                     iconRes = MimikyuIcons.Enhance,
-                    text = if (isIntelligence) "Turn Off Heartbeat Mode" else "Turn On Heartbeat Mode",
+                    text = if (automixEnabled) "Turn Off Automix" else "Turn On Automix",
                     onClick = {
                         scope.launch {
                             sheetState.hide()
                             onDismiss()
-                            onToggleIntelligence(!isIntelligence)
+                            onToggleAutomix()
                         }
                     }
                 )

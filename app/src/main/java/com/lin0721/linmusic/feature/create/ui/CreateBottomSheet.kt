@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -66,14 +67,14 @@ fun CreatePopupMenu(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(PillRadius))
-            .background(SurfaceDark)
-            .padding(vertical = MimikyuSpacing.sm)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFF242424))
+            .padding(vertical = 6.dp)
     ) {
         CreateMenuItem(
-            iconRes = MimikyuIcons.Playlist,
-            title = "Playlists",
-            subtitle = "Create a playlist containing songs or collections",
+            iconRes = MimikyuIcons.PlaylistNote,
+            title = "Playlist",
+            subtitle = "Create a playlist with songs",
             onClick = {
                 if (userProfile != null) {
                     showCreateDialog = true
@@ -113,45 +114,52 @@ private fun CreateMenuItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(SurfaceLight),
+                .background(Color(0xFF383838)),
             contentAlignment = Alignment.Center
         ) {
             if (iconRes != 0) {
                 Icon(
                     painter = painterResource(id = iconRes),
                     contentDescription = null,
-                    tint = MimikyuSilver,
-                    modifier = Modifier.size(22.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
                 )
             } else if (icon != null) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MimikyuSilver,
-                    modifier = Modifier.size(22.dp)
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
         Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
             Text(
                 text = title,
-                color = MimikyuSilver,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = subtitle,
-                color = TextGray,
-                fontSize = 12.sp
+                color = Color(0xFFA7A7A7),
+                fontSize = 13.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

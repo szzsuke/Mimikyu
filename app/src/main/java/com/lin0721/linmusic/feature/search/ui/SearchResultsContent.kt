@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.SubcomposeAsyncImage
 import com.lin0721.linmusic.core.metadata.SongArtworkEngine
 import com.lin0721.linmusic.core.ui.theme.MimikyuIcons
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
 import com.lin0721.linmusic.core.ui.theme.MimikyuYellow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -213,7 +214,7 @@ private fun SearchResultsList(
                                 data = SongRowData(
                                     id = track.id,
                                     title = track.name,
-                                    artist = track.ar.joinToString(" / ") { it.name },
+                                    artist = track.ar.firstOrNull()?.name?.takeIf { it.isNotBlank() } ?: "Unknown",
                                     coverUrl = track.al.picUrl
                                 ),
                                 isActive = isActive,
@@ -362,7 +363,7 @@ private fun SearchResultsList(
                                     data = SongRowData(
                                         id = track.id,
                                         title = track.name,
-                                        artist = track.ar.joinToString(" / ") { it.name },
+                                        artist = track.ar.firstOrNull()?.name?.takeIf { it.isNotBlank() } ?: "Unknown",
                                         coverUrl = track.al.picUrl
                                     ),
                                     isActive = isActive,
@@ -517,30 +518,26 @@ private fun TopResultCard(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
-                if (isCurrentlyPlaying) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.45f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        com.lin0721.linmusic.core.ui.components.PlayingEqualizerBars(
-                            color = Color(0xFF1ED760),
-                            animate = isPlaying
-                        )
-                    }
-                }
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = track.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isCurrentlyPlaying) Color(0xFF1ED760) else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isCurrentlyPlaying) {
+                        com.lin0721.linmusic.core.ui.components.PlayingEqualizerBars(
+                            color = MimikyuPink,
+                            animate = isPlaying
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        text = track.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isCurrentlyPlaying) MimikyuPink else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = track.ar.joinToString(" / ") { it.name },

@@ -156,6 +156,19 @@ class MediaControllerHolder(private val context: Context) {
         }
     }
 
+    fun clearUpcomingMediaItems() {
+        val c = controller ?: return
+        runCatching {
+            val currentIdx = c.currentMediaItemIndex
+            val totalCount = c.mediaItemCount
+            if (currentIdx >= 0 && totalCount > currentIdx + 1) {
+                c.removeMediaItems(currentIdx + 1, totalCount)
+            }
+        }.onFailure { e ->
+            com.lin0721.linmusic.core.log.AppLogger.w("MediaControllerHolder", "clearUpcomingMediaItems caught: ${e.message}")
+        }
+    }
+
     // deviceId  -1 ， Service  of  AudioDeviceInfo
     fun preArmStandby(mediaItem: MediaItem, startPositionMs: Long, fadeMs: Long, bassSwap: Boolean) {
         val args = Bundle().apply {

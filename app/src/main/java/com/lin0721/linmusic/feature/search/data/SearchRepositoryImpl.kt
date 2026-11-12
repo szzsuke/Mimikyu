@@ -9,6 +9,7 @@ import com.lin0721.linmusic.core.network.mapToAppError
 import com.lin0721.linmusic.core.metadata.cleanMetadataText
 import com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist
 import com.lin0721.linmusic.core.player.innertube.YouTubeIdRegistry
+import com.lin0721.linmusic.core.player.recommendation.InnerTubeRadioEngine
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.AlbumItem
@@ -395,11 +396,10 @@ class SearchRepositoryImpl(
     }
 
     override fun getSuggestions(keyword: String): Flow<Result<List<SearchSuggestion>>> = flow {
-        val result = YouTube.searchSuggestions(keyword).getOrThrow()
-        val artistSuggestions = mutableListOf<SearchSuggestion>()
-        val albumSuggestions = mutableListOf<SearchSuggestion>()
-        val songSuggestions = mutableListOf<SearchSuggestion>()
-        val keywordSuggestions = mutableListOf<SearchSuggestion>()
+        if (keyword.isBlank()) {
+            emit(Result.success(emptyList()))
+            return@flow
+        }
 
         val videoBlacklist = listOf(
             "video", "official video", "music video", "official music video",
@@ -414,98 +414,182 @@ class SearchRepositoryImpl(
 
         val keywordLower = keyword.lowercase().trim()
 
-        // Prioritize artist, album, and authentic song matches
-        result.recommendedItems.forEach { item ->
-            when (item) {
-                is ArtistItem -> {
-                    val artistId = YouTubeIdRegistry.registerArtist(item.id, item.title)
-                    artistSuggestions.add(
-                        SearchSuggestion.ArtistMatch(
-                            id = artistId,
-                            text = cleanMetadataText(item.title),
-                            avatarUrl = SongArtworkEngine.optimizeArtworkUrl(item.thumbnail ?: "", 544)
-                        )
-                    )
-                }
-                is AlbumItem -> {
-                    val albumId = YouTubeIdRegistry.registerAlbum(item.browseId)
-                    albumSuggestions.add(
-                        SearchSuggestion.AlbumMatch(
-                            id = albumId,
-                            text = cleanMetadataText(item.title),
-                            artistName = cleanMetadataText(item.artists?.firstOrNull()?.name ?: "")
-                        )
-                    )
-                }
-                is SongItem -> {
-                    val cleanTitle = cleanMetadataText(item.title)
-                    val tLower = cleanTitle.lowercase()
-                    val hasVideoMarker = videoBlacklist.any { tLower.contains(it) }
-                    if (!hasVideoMarker) {
-                        val artistName = cleanMetadataText(item.artists.joinToString(", ") { cleanMetadataText(it.name) })
-                        val mappedArtists = item.artists.map {
-                            val aId = it.id?.let { id -> YouTubeIdRegistry.registerArtist(id, it.name) }
-                                ?: YouTubeIdRegistry.registerArtistByName(it.name)
-                            Artist(id = aId, name = cleanMetadataText(it.name))
-                        }
-                        val cleanAlbumName = cleanMetadataText(item.album?.name ?: "")
-                        val bestCover = SongArtworkEngine.optimizeArtworkUrl(item.thumbnail, 544)
+        val artistSuggestions = mutableListOf<SearchSuggestion>()
+        val albumSuggestions = mutableListOf<SearchSuggestion>()
+        val songSuggestions = mutableListOf<SearchSuggestion.SongMatch>()
+        val keywordSuggestions = mutableListOf<SearchSuggestion.Keyword>()
 
-                        val songId = YouTubeIdRegistry.register(
-                            videoId = item.id,
-                            title = cleanTitle,
-                            artist = artistName,
-                            durationSec = item.duration ?: 0,
-                            album = cleanAlbumName,
-                            coverUrl = bestCover,
-                            artists = mappedArtists
-                        )
-                        songSuggestions.add(
-                            SearchSuggestion.SongMatch(
-                                id = songId,
-                                text = cleanTitle,
-                                artistName = artistName,
-                                coverUrl = bestCover,
-                                rawVideoId = item.id
+        coroutineScope {
+            val suggestionsDeferred = async { runCatching { YouTube.searchSuggestions(keyword).getOrNull() }.getOrNull() }
+            val songSearchDeferred = async { runCatching { YouTube.search(keyword, YouTube.SearchFilter.FILTER_SONG).getOrNull() }.getOrNull() }
+
+            val result = suggestionsDeferred.await()
+            val songSearchResult = songSearchDeferred.await()
+
+            // 1. Process keyword queries from searchSuggestions
+            val seenQueries = HashSet<String>()
+            result?.queries?.forEach { rawQuery ->
+                val qLower = rawQuery.lowercase().trim()
+                val hasVideoTerm = videoBlacklist.any { term ->
+                    qLower.contains(term) && !keywordLower.contains(term)
+                }
+                if (!hasVideoTerm) {
+                    val cleaned = rawQuery
+                        .replace(Regex("""\s*[\(\[](official\s*(music\s*)?video|audio|lyric(s)?(\s*video)?|visualizer)[\)\]]""", RegexOption.IGNORE_CASE), "")
+                        .replace(Regex("""\s*-\s*(official\s*audio|official\s*video|lyrics).*$""", RegexOption.IGNORE_CASE), "")
+                        .trim()
+
+                    if (cleaned.isNotBlank() && seenQueries.add(cleaned.lowercase())) {
+                        keywordSuggestions.add(SearchSuggestion.Keyword(cleaned))
+                    }
+                }
+            }
+
+            // 2. Process recommended items from searchSuggestions
+            result?.recommendedItems?.forEach { item ->
+                when (item) {
+                    is ArtistItem -> {
+                        val artistId = YouTubeIdRegistry.registerArtist(item.id, item.title)
+                        artistSuggestions.add(
+                            SearchSuggestion.ArtistMatch(
+                                id = artistId,
+                                text = cleanMetadataText(item.title),
+                                avatarUrl = SongArtworkEngine.optimizeArtworkUrl(item.thumbnail ?: "", 544)
                             )
                         )
                     }
+                    is AlbumItem -> {
+                        val albumId = YouTubeIdRegistry.registerAlbum(item.browseId)
+                        albumSuggestions.add(
+                            SearchSuggestion.AlbumMatch(
+                                id = albumId,
+                                text = cleanMetadataText(item.title),
+                                artistName = cleanMetadataText(item.artists?.firstOrNull()?.name ?: "")
+                            )
+                        )
+                    }
+                    is SongItem -> {
+                        val cleanTitle = cleanMetadataText(item.title)
+                        val tLower = cleanTitle.lowercase()
+                        val hasVideoMarker = videoBlacklist.any { tLower.contains(it) }
+                        if (!hasVideoMarker) {
+                            val artistName = cleanMetadataText(item.artists.joinToString(", ") { cleanMetadataText(it.name) })
+                            val mappedArtists = item.artists.map {
+                                val aId = it.id?.let { id -> YouTubeIdRegistry.registerArtist(id, it.name) }
+                                    ?: YouTubeIdRegistry.registerArtistByName(it.name)
+                                Artist(id = aId, name = cleanMetadataText(it.name))
+                            }
+                            val cleanAlbumName = cleanMetadataText(item.album?.name ?: "")
+                            val bestCover = SongArtworkEngine.optimizeArtworkUrl(item.thumbnail, 544)
+
+                            val songId = YouTubeIdRegistry.register(
+                                videoId = item.id,
+                                title = cleanTitle,
+                                artist = artistName,
+                                durationSec = item.duration ?: 0,
+                                album = cleanAlbumName,
+                                coverUrl = bestCover,
+                                artists = mappedArtists
+                            )
+                            songSuggestions.add(
+                                SearchSuggestion.SongMatch(
+                                    id = songId,
+                                    text = cleanTitle,
+                                    artistName = artistName,
+                                    coverUrl = bestCover,
+                                    rawVideoId = item.id
+                                )
+                            )
+                        }
+                    }
+                    else -> {}
                 }
-                else -> {}
-            }
-        }
-
-        val seenQueries = HashSet<String>()
-        result.queries.forEach { rawQuery ->
-            val qLower = rawQuery.lowercase().trim()
-
-            // Filter out queries containing video or non-music suffixes unless user is typing them
-            val hasVideoTerm = videoBlacklist.any { term ->
-                qLower.contains(term) && !keywordLower.contains(term)
             }
 
-            if (!hasVideoTerm) {
-                val cleaned = rawQuery
-                    .replace(Regex("""\s*[\(\[](official\s*(music\s*)?video|audio|lyric(s)?(\s*video)?|visualizer)[\)\]]""", RegexOption.IGNORE_CASE), "")
-                    .replace(Regex("""\s*-\s*(official\s*audio|official\s*video|lyrics).*$""", RegexOption.IGNORE_CASE), "")
-                    .trim()
+            // 3. Process direct song search results (richly populated song results)
+            songSearchResult?.items?.filterIsInstance<SongItem>()?.forEach { item ->
+                val cleanTitle = cleanMetadataText(item.title)
+                val tLower = cleanTitle.lowercase()
+                val hasVideoMarker = videoBlacklist.any { tLower.contains(it) }
+                if (!hasVideoMarker) {
+                    val artistName = cleanMetadataText(item.artists.joinToString(", ") { cleanMetadataText(it.name) })
+                    val mappedArtists = item.artists.map {
+                        val aId = it.id?.let { id -> YouTubeIdRegistry.registerArtist(id, it.name) }
+                            ?: YouTubeIdRegistry.registerArtistByName(it.name)
+                        Artist(id = aId, name = cleanMetadataText(it.name))
+                    }
+                    val cleanAlbumName = cleanMetadataText(item.album?.name ?: "")
+                    val bestCover = SongArtworkEngine.optimizeArtworkUrl(item.thumbnail, 544)
 
-                if (cleaned.isNotBlank() && seenQueries.add(cleaned.lowercase())) {
-                    keywordSuggestions.add(SearchSuggestion.Keyword(cleaned))
+                    val songId = YouTubeIdRegistry.register(
+                        videoId = item.id,
+                        title = cleanTitle,
+                        artist = artistName,
+                        durationSec = item.duration ?: 0,
+                        album = cleanAlbumName,
+                        coverUrl = bestCover,
+                        artists = mappedArtists
+                    )
+                    songSuggestions.add(
+                        SearchSuggestion.SongMatch(
+                            id = songId,
+                            text = cleanTitle,
+                            artistName = artistName,
+                            coverUrl = bestCover,
+                            rawVideoId = item.id
+                        )
+                    )
+                }
+            }
+
+            // Emit immediate suggestions batch (fast response)
+            val initialSongs = songSuggestions.distinctBy { it.id }
+            val initialAll = (artistSuggestions + albumSuggestions + initialSongs + keywordSuggestions).distinctBy { suggestion ->
+                when (suggestion) {
+                    is SearchSuggestion.ArtistMatch -> "artist_${suggestion.id}"
+                    is SearchSuggestion.AlbumMatch -> "album_${suggestion.id}"
+                    is SearchSuggestion.SongMatch -> "song_${suggestion.id}"
+                    is SearchSuggestion.Keyword -> "keyword_${suggestion.text.lowercase().trim()}"
+                }
+            }
+            if (initialAll.isNotEmpty()) {
+                emit(Result.success(initialAll))
+            }
+
+            // 4. Algorithmic related songs (Spotify style: populate related songs via radio candidates)
+            val seedVideoId = initialSongs.firstOrNull()?.rawVideoId
+            if (!seedVideoId.isNullOrBlank()) {
+                val relatedCandidates = runCatching {
+                    InnerTubeRadioEngine.getRadioCandidates(seedVideoId, count = 12)
+                }.getOrNull().orEmpty()
+
+                if (relatedCandidates.isNotEmpty()) {
+                    relatedCandidates.forEach { candidate ->
+                        val rVideoId = YouTubeIdRegistry.getVideoId(candidate.songId) ?: ""
+                        songSuggestions.add(
+                            SearchSuggestion.SongMatch(
+                                id = candidate.songId,
+                                text = candidate.title,
+                                artistName = candidate.artist,
+                                coverUrl = candidate.coverUrl,
+                                rawVideoId = rVideoId
+                            )
+                        )
+                    }
+
+                    val enrichedSongs = songSuggestions.distinctBy { it.id }
+                    val finalSuggestions = (artistSuggestions + albumSuggestions + enrichedSongs + keywordSuggestions).distinctBy { suggestion ->
+                        when (suggestion) {
+                            is SearchSuggestion.ArtistMatch -> "artist_${suggestion.id}"
+                            is SearchSuggestion.AlbumMatch -> "album_${suggestion.id}"
+                            is SearchSuggestion.SongMatch -> "song_${suggestion.id}"
+                            is SearchSuggestion.Keyword -> "keyword_${suggestion.text.lowercase().trim()}"
+                        }
+                    }
+                    emit(Result.success(finalSuggestions))
                 }
             }
         }
-
-        val allSuggestions = (artistSuggestions + albumSuggestions + songSuggestions + keywordSuggestions).distinctBy { suggestion ->
-            when (suggestion) {
-                is SearchSuggestion.ArtistMatch -> "artist_${suggestion.id}"
-                is SearchSuggestion.AlbumMatch -> "album_${suggestion.id}"
-                is SearchSuggestion.SongMatch -> "song_${suggestion.id}"
-                is SearchSuggestion.Keyword -> "keyword_${suggestion.text.lowercase().trim()}"
-            }
-        }
-
-        emit(Result.success(allSuggestions))
     }.catch { e ->
         AppLogger.w(TAG, "YouTube Music suggestions failed", e)
         emit(Result.failure(mapToAppError(e)))

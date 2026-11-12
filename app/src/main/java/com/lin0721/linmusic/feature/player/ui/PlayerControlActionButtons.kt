@@ -49,7 +49,9 @@ fun ActionButtons(
     isModern: Boolean = false,
     onMoreClick: () -> Unit = {},
     currentSongId: Long = 0L,
-    onDownloadClick: () -> Unit = {}
+    onDownloadClick: () -> Unit = {},
+    automixEnabled: Boolean = true,
+    onToggleAutomix: () -> Unit = {}
 ) {
     if (isModern) {
         val devicePrimary = MaterialTheme.colorScheme.primary

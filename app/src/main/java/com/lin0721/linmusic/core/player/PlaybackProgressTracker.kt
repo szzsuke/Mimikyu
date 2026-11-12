@@ -29,26 +29,53 @@ class PlaybackProgressTracker(
     private var progressJob: Job? = null
     private var onTickCallback: (suspend (positionMs: Long) -> Unit)? = null
 
+    private var isHeld: Boolean = false
+    private var heldPosition: Long = 0L
+    private var heldDuration: Long = 0L
+
+    fun hold(positionMs: Long, durationMs: Long) {
+        isHeld = true
+        heldPosition = positionMs
+        heldDuration = durationMs
+        _currentPosition.value = positionMs
+        if (durationMs > 0L) {
+            _duration.value = durationMs
+        }
+    }
+
+    fun releaseHold() {
+        if (!isHeld) return
+        isHeld = false
+        val curPos = controller.currentPosition
+        clock.reset(curPos)
+        _currentPosition.value = curPos
+        updateDurationFromController()
+    }
+
     fun setUpdateInterval(intervalMs: Long) {
         _updateInterval.value = intervalMs.coerceIn(16L, 50L)
     }
 
     fun syncImmediatePosition() {
+        if (isHeld) return
         val curPos = controller.currentPosition
         clock.reset(curPos)
         _currentPosition.value = curPos
     }
 
     fun setPosition(positionMs: Long) {
+        if (isHeld) return
         clock.reset(positionMs)
         _currentPosition.value = positionMs
     }
 
     fun setDuration(durationMs: Long) {
+        if (isHeld) return
         _duration.value = durationMs
     }
 
     fun updateDurationFromController() {
+        if (isHeld) return
         val dur = controller.duration
         if (dur > 0L) {
             _duration.value = dur
@@ -56,6 +83,7 @@ class PlaybackProgressTracker(
     }
 
     fun resetTo(startPosition: Long, preserveDuration: Boolean = false) {
+        if (isHeld) return
         clock.reset(startPosition)
         _currentPosition.value = startPosition
         if (!preserveDuration) {
@@ -71,23 +99,30 @@ class PlaybackProgressTracker(
     fun updatePlayingState(isPlaying: Boolean) {
         progressJob?.cancel()
         progressJob = null
-        val curPos = controller.currentPosition
-        clock.reset(curPos)
-        _currentPosition.value = curPos
+        if (!isHeld) {
+            val curPos = controller.currentPosition
+            clock.reset(curPos)
+            _currentPosition.value = curPos
+        }
 
         if (isPlaying && controller.playbackState == Player.STATE_READY) {
             progressJob = scope.launch {
                 while (isActive && controller.isPlaying && controller.playbackState == Player.STATE_READY) {
-                    val rawPos = controller.currentPosition
-                    val speed = controller.playbackSpeed
-                    val smoothPos = clock.update(
-                        sourcePositionMs = rawPos,
-                        speed = speed,
-                        isAdvancing = true,
-                        durationMs = _duration.value
-                    )
-                    _currentPosition.value = smoothPos
-                    onTickCallback?.invoke(smoothPos)
+                    if (!isHeld) {
+                        val rawPos = controller.currentPosition
+                        val speed = controller.playbackSpeed
+                        val smoothPos = clock.update(
+                            sourcePositionMs = rawPos,
+                            speed = speed,
+                            isAdvancing = true,
+                            durationMs = _duration.value
+                        )
+                        _currentPosition.value = smoothPos
+                        onTickCallback?.invoke(smoothPos)
+                    } else {
+                        _currentPosition.value = heldPosition
+                        if (heldDuration > 0L) _duration.value = heldDuration
+                    }
                     delay(_updateInterval.value.coerceIn(16L, 50L))
                 }
             }

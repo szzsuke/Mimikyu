@@ -19,6 +19,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreVert
+import com.lin0721.linmusic.core.model.Track
+import com.lin0721.linmusic.core.model.Artist
+import com.lin0721.linmusic.core.model.Album
 import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
@@ -56,6 +60,7 @@ import com.lin0721.linmusic.core.ui.theme.MimikyuPress
 import com.lin0721.linmusic.core.ui.theme.MimikyuSpacing
 import com.lin0721.linmusic.core.ui.theme.RadiusCompact
 import com.lin0721.linmusic.core.ui.theme.MimikyuIcons
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
 import com.lin0721.linmusic.feature.search.data.RecentItemType
 import com.lin0721.linmusic.feature.search.data.RecentSearchItem
 import com.lin0721.linmusic.feature.search.domain.SearchSuggestion
@@ -69,6 +74,7 @@ internal fun SearchTypingPanel(
     recentItems: List<RecentSearchItem>,
     currentTrackId: String? = null,
     isPlaying: Boolean = false,
+    likedSongIds: Set<Long> = emptySet(),
     onSubmitKeyword: (String) -> Unit,
     onFillQuery: (String) -> Unit,
     onArtistClick: (Long) -> Unit,
@@ -77,6 +83,7 @@ internal fun SearchTypingPanel(
     onPlayRecentSong: (RecentSearchItem) -> Unit = {},
     onPlaySongMatch: (SearchSuggestion.SongMatch) -> Unit = {},
     onAddSongToLibrary: (Long) -> Unit = {},
+    onOpenMoreOptions: (Track) -> Unit = {},
     onRemoveRecentItem: (String) -> Unit,
     onClearRecentItems: () -> Unit = {}
 ) {
@@ -174,38 +181,40 @@ internal fun SearchTypingPanel(
     val highlight = MaterialTheme.colorScheme.primary
     val uniqueSuggestions = remember(suggestions) { suggestions.distinctBy { it.stableKey } }
     val keywordSuggestions = remember(uniqueSuggestions) {
-        uniqueSuggestions.filterIsInstance<SearchSuggestion.Keyword>().take(3)
+        uniqueSuggestions.filterIsInstance<SearchSuggestion.Keyword>().take(5)
     }
     val mediaSuggestions = remember(uniqueSuggestions) {
         uniqueSuggestions.filter { it !is SearchSuggestion.Keyword }
     }
 
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = contentPadding) {
-        // Top row: Search exact query
-        item(key = "submit_query") {
-            PanelRow(
-                onClick = { onSubmitKeyword(query) },
-                leading = { LeadingIcon(Icons.Rounded.Search, tint = MaterialTheme.colorScheme.onSurface) },
-                title = AnnotatedString("Search \"$query\""),
-                titleWeight = FontWeight.Bold
-            )
-        }
-
-        // Compact text suggestions (capped at 3)
+        // Compact text suggestions (matching Spotify style: clean search icon, bold continuation, arrow fill)
         items(keywordSuggestions, key = { it.stableKey }) { suggestion ->
-            val title = remember(suggestion.text, query, highlight) {
-                highlightMatch(suggestion.text, query, SpanStyle(color = highlight))
+            val title = remember(suggestion.text, query) {
+                formatSpotifySuggestion(suggestion.text, query)
             }
             PanelRow(
                 onClick = { onSubmitKeyword(suggestion.text) },
-                leading = { LeadingIcon(Icons.Rounded.Search) },
+                leading = {
+                    Box(modifier = Modifier.size(LeadingSize), contentAlignment = Alignment.Center) {
+                        Icon(
+                            painter = painterResource(MimikyuIcons.Search),
+                            contentDescription = null,
+                            tint = Color(0xFFB3B3B3),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                },
                 title = title,
                 trailing = {
-                    MimikyuIconButton(onClick = { onFillQuery(suggestion.text) }) {
+                    MimikyuIconButton(
+                        onClick = { onFillQuery(suggestion.text) },
+                        modifier = Modifier.size(36.dp)
+                    ) {
                         Icon(
-                            Icons.Rounded.NorthWest,
+                            imageVector = Icons.Rounded.NorthWest,
                             contentDescription = "Fill ${suggestion.text}",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = Color(0xFFB3B3B3),
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -213,14 +222,9 @@ internal fun SearchTypingPanel(
             )
         }
 
-        // Horizontal divider between text completions and live media rows
-        if (mediaSuggestions.isNotEmpty()) {
-            item(key = "typeahead_divider") {
-                androidx.compose.material3.HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-                )
+        if (mediaSuggestions.isNotEmpty() && keywordSuggestions.isNotEmpty()) {
+            item(key = "typeahead_spacer") {
+                Spacer(modifier = Modifier.height(6.dp))
             }
         }
 
@@ -234,13 +238,15 @@ internal fun SearchTypingPanel(
                         suggestion = suggestion,
                         isCurrent = isSongActive,
                         isPlaying = isPlaying,
+                        isLiked = suggestion.id in likedSongIds,
                         onPlay = { onPlaySongMatch(suggestion) },
-                        onFill = { onFillQuery(suggestion.text) }
+                        onAddSongToLibrary = { onAddSongToLibrary(suggestion.id) },
+                        onOpenMoreOptions = onOpenMoreOptions
                     )
                 }
                 is SearchSuggestion.ArtistMatch -> {
-                    val title = remember(suggestion.text, query, highlight) {
-                        highlightMatch(suggestion.text, query, SpanStyle(color = highlight))
+                    val title = remember(suggestion.text, query) {
+                        formatSpotifySuggestion(suggestion.text, query)
                     }
                     PanelRow(
                         onClick = { onArtistClick(suggestion.id) },
@@ -248,11 +254,14 @@ internal fun SearchTypingPanel(
                         title = title,
                         subtitle = "Artist",
                         trailing = {
-                            MimikyuIconButton(onClick = { onFillQuery(suggestion.text) }) {
+                            MimikyuIconButton(
+                                onClick = { onFillQuery(suggestion.text) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
                                 Icon(
-                                    Icons.Rounded.NorthWest,
+                                    imageVector = Icons.Rounded.NorthWest,
                                     contentDescription = "Fill ${suggestion.text}",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = Color(0xFFB3B3B3),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -260,20 +269,25 @@ internal fun SearchTypingPanel(
                     )
                 }
                 is SearchSuggestion.AlbumMatch -> {
-                    val title = remember(suggestion.text, query, highlight) {
-                        highlightMatch(suggestion.text, query, SpanStyle(color = highlight))
+                    val title = remember(suggestion.text, query) {
+                        formatSpotifySuggestion(suggestion.text, query)
                     }
+                    val topArtist = extractPrimaryArtist(suggestion.artistName)
+                    val subtitle = if (topArtist.isNotBlank()) "Album • $topArtist" else "Album"
                     PanelRow(
                         onClick = { onAlbumClick(suggestion.id) },
                         leading = { SuggestionCover(null, MimikyuIcons.Album, circle = false) },
                         title = title,
-                        subtitle = listOf("Album", suggestion.artistName).filter { it.isNotBlank() }.joinToString(" · "),
+                        subtitle = subtitle,
                         trailing = {
-                            MimikyuIconButton(onClick = { onFillQuery(suggestion.text) }) {
+                            MimikyuIconButton(
+                                onClick = { onFillQuery(suggestion.text) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
                                 Icon(
-                                    Icons.Rounded.NorthWest,
+                                    imageVector = Icons.Rounded.NorthWest,
                                     contentDescription = "Fill ${suggestion.text}",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = Color(0xFFB3B3B3),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -312,9 +326,16 @@ private fun RecentItemRow(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (isCurrentlyPlaying) {
+                    PlayingEqualizerBars(
+                        color = MimikyuPink,
+                        animate = isPlaying
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
                 Text(
                     text = item.title,
-                    color = if (isCurrentlyPlaying) Color(0xFF1ED760) else Color.White,
+                    color = if (isCurrentlyPlaying) MimikyuPink else Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -456,16 +477,7 @@ private fun RecentItemImage(
             )
         }
 
-        if (isCurrentlyPlaying) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.45f)),
-                contentAlignment = Alignment.Center
-            ) {
-                PlayingEqualizerBars(color = Color(0xFF1ED760), animate = isPlaying)
-            }
-        }
+
     }
 }
 
@@ -474,8 +486,10 @@ private fun TypeaheadSongRow(
     suggestion: SearchSuggestion.SongMatch,
     isCurrent: Boolean,
     isPlaying: Boolean,
+    isLiked: Boolean,
     onPlay: () -> Unit,
-    onFill: () -> Unit
+    onAddSongToLibrary: () -> Unit,
+    onOpenMoreOptions: (Track) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -489,8 +503,8 @@ private fun TypeaheadSongRow(
         }
         Box(
             modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .size(48.dp)
+                .clip(RoundedCornerShape(4.dp))
                 .background(Color(0xFF282828)),
             contentAlignment = Alignment.Center
         ) {
@@ -500,65 +514,85 @@ private fun TypeaheadSongRow(
                 contentScale = ContentScale.Crop,
                 loading = {
                     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF282828)), contentAlignment = Alignment.Center) {
-                        Icon(painter = painterResource(MimikyuIcons.Track), contentDescription = null, tint = Color(0xFF717171), modifier = Modifier.size(24.dp))
+                        Icon(painter = painterResource(MimikyuIcons.Track), contentDescription = null, tint = Color(0xFF717171), modifier = Modifier.size(22.dp))
                     }
                 },
                 error = {
                     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF282828)), contentAlignment = Alignment.Center) {
-                        Icon(painter = painterResource(MimikyuIcons.Track), contentDescription = null, tint = Color(0xFF717171), modifier = Modifier.size(24.dp))
+                        Icon(painter = painterResource(MimikyuIcons.Track), contentDescription = null, tint = Color(0xFF717171), modifier = Modifier.size(22.dp))
                     }
                 },
                 modifier = Modifier.fillMaxSize()
             )
-            if (isCurrent) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.45f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    PlayingEqualizerBars(color = Color(0xFF1ED760), animate = isPlaying)
-                }
-            }
         }
 
-        Spacer(modifier = Modifier.width(14.dp))
+        Spacer(modifier = Modifier.width(12.dp))
 
         Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isCurrent) {
+                    PlayingEqualizerBars(
+                        color = MimikyuPink,
+                        animate = isPlaying
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(
+                    text = suggestion.text,
+                    color = if (isCurrent) MimikyuPink else Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
+            val topArtist = extractPrimaryArtist(suggestion.artistName)
+            val subtitle = if (topArtist.isNotBlank()) "Song • $topArtist" else "Song"
             Text(
-                text = suggestion.text,
-                color = if (isCurrent) Color(0xFF1ED760) else Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = listOf("Song", suggestion.artistName).filter { it.isNotBlank() }.joinToString(" · "),
+                text = subtitle,
                 color = Color.White.copy(alpha = 0.65f),
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        // Direct action / fill button
+        // Action Buttons: 3 dots and Add to library (matching Spotify search)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            MimikyuIconButton(onClick = onPlay, modifier = Modifier.size(36.dp)) {
+            MimikyuIconButton(
+                onClick = {
+                    val track = Track(
+                        id = suggestion.id,
+                        name = suggestion.text,
+                        ar = listOf(Artist(name = suggestion.artistName)),
+                        al = Album(picUrl = suggestion.coverUrl)
+                    )
+                    onOpenMoreOptions(track)
+                },
+                modifier = Modifier.size(36.dp)
+            ) {
                 Icon(
-                    imageVector = Icons.Rounded.PlayArrow,
-                    contentDescription = "Play immediately",
-                    tint = Color.White.copy(alpha = 0.8f),
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "More options",
+                    tint = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier.size(20.dp)
                 )
             }
-            MimikyuIconButton(onClick = onFill, modifier = Modifier.size(36.dp)) {
+
+            Spacer(modifier = Modifier.width(2.dp))
+
+            MimikyuIconButton(
+                onClick = onAddSongToLibrary,
+                modifier = Modifier.size(36.dp)
+            ) {
                 Icon(
-                    imageVector = Icons.Rounded.NorthWest,
-                    contentDescription = "Fill ${suggestion.text}",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
+                    painter = painterResource(
+                        if (isLiked) MimikyuIcons.CheckCircle else MimikyuIcons.PlusCircle
+                    ),
+                    contentDescription = if (isLiked) "Added to library" else "Add to library",
+                    tint = if (isLiked) Color(0xFF1ED760) else Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
@@ -594,7 +628,7 @@ private fun PanelRow(
         Column(modifier = Modifier.weight(1f).padding(vertical = 4.dp)) {
             Text(
                 text = title,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = Color.White,
                 fontSize = 15.sp,
                 fontWeight = titleWeight,
                 maxLines = 1,
@@ -673,5 +707,33 @@ internal fun highlightMatch(text: String, query: String, style: SpanStyle): Anno
             start = index + needle.length
         }
         if (start < text.length) append(text.substring(start))
+    }
+}
+
+internal fun extractPrimaryArtist(artistName: String): String {
+    if (artistName.isBlank()) return ""
+    val parts = artistName.split(Regex("[,/&]|\\s+(feat\\.?|ft\\.?)\\s+", RegexOption.IGNORE_CASE))
+    return parts.firstOrNull()?.trim() ?: artistName.trim()
+}
+
+internal fun formatSpotifySuggestion(text: String, query: String): AnnotatedString {
+    val trimmed = query.trim()
+    if (trimmed.isEmpty()) return AnnotatedString(text)
+    val index = text.indexOf(trimmed, ignoreCase = true)
+    if (index < 0) return AnnotatedString(text)
+    return buildAnnotatedString {
+        if (index > 0) {
+            withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) {
+                append(text.substring(0, index))
+            }
+        }
+        withStyle(SpanStyle(color = Color(0xFFB3B3B3), fontWeight = FontWeight.Normal)) {
+            append(text.substring(index, index + trimmed.length))
+        }
+        if (index + trimmed.length < text.length) {
+            withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) {
+                append(text.substring(index + trimmed.length))
+            }
+        }
     }
 }

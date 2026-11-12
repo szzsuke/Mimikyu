@@ -3,7 +3,11 @@ package com.lin0721.linmusic
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -360,6 +364,7 @@ fun MimikyuApp() {
                                     onLoginScreenVisibilityChanged = { isLoginScreenVisible = it },
                                     onNavigateToLikedSongs = { navigation.openLikedSongs() },
                                     onNavigateToDownloadedSongs = { navigation.openDownloadedSongs() },
+                                    onNavigateToLibrary = { navigation.navigateTo(Screen.Library) },
                                     onNavigateToPlaylist = { id, isAlbum -> navigation.openPlaylist(id, isAlbum) },
                                     onNavigateToArtist = { id -> navigation.openArtist(id) },
                                     onNavigateToMv = { id, name -> navigation.openMvPlayer(id, name) },
@@ -385,13 +390,22 @@ fun MimikyuApp() {
                             }
                         }
 
-                        // Create
-                        if (showCreateSheet) {
+                        // Create Scrim
+                        val createScrimAlpha by animateFloatAsState(
+                            targetValue = if (showCreateSheet) 0.5f else 0f,
+                            animationSpec = tween(220, easing = FastOutSlowInEasing),
+                            label = "create_scrim_alpha"
+                        )
+                        if (createScrimAlpha > 0f) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.4f))
-                                    .pressable(MimikyuPress.None) { showCreateSheet = false }
+                                    .graphicsLayer { alpha = createScrimAlpha }
+                                    .background(Color.Black)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { showCreateSheet = false }
                             )
                         }
 
@@ -565,6 +579,9 @@ fun MimikyuApp() {
 
         // 6. ，
         val updateManager: UpdateManager = koinInject()
+        LaunchedEffect(Unit) {
+            updateManager.checkForStartupUpdate()
+        }
         val updateState by updateManager.uiState.collectAsStateWithLifecycle()
         val isDialogVisible by updateManager.isDialogVisible.collectAsStateWithLifecycle()
         if (isDialogVisible && updateState !is UpdateUiState.Idle) {

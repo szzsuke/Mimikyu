@@ -104,6 +104,8 @@ fun FullPlayerScreen(
 
     val context = LocalContext.current
     val viewModel: PlayerViewModel = koinViewModel()
+    val automixStatus by viewModel.automixStatus.collectAsStateWithLifecycle()
+    val isMixing = automixStatus.isMixing
     val songDetailState by viewModel.songDetailState.collectAsStateWithLifecycle()
     val songDetail = songDetailState.songDetail
     // Play："Paused"， of  isPlaying；
@@ -513,7 +515,9 @@ fun FullPlayerScreen(
                             }
                         },
                         fillGap = if (allCardsHidden) fillGap else null,
-                        fillTail = fillTail
+                        fillTail = fillTail,
+                        isMixing = isMixing,
+                        transitionWindow = automixStatus.transitionWindow
                     )
 
                     fullPlayerInfoSection(
@@ -608,7 +612,9 @@ fun FullPlayerScreen(
                         currentPositionProvider = currentPositionProvider,
                         duration = if (duration > 0L) duration else (songDetail?.dt ?: 0L),
                         onSeek = onSeek,
-                        chorusStartMs = songDetailState.chorusStartMs
+                        chorusStartMs = songDetailState.chorusStartMs,
+                        isMixing = isMixing,
+                        transitionWindow = automixStatus.transitionWindow
                     )
                     PlaybackControls(
                         isPlaying = playWhenReady,
@@ -749,6 +755,8 @@ fun FullPlayerScreen(
                 showTimerSheet = true
             },
             onQualitySelected = viewModel::updateQuality,
+            automixEnabled = automixStatus.isEnabled,
+            onToggleAutomix = viewModel::toggleAutomix,
             onToggleIntelligence = { checked ->
                 if (checked) {
                     val songId = currentTrack.mediaId.toLongOrNull() ?: 0L

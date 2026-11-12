@@ -150,15 +150,30 @@ class SmartRecommendationEngine(
         }
 
         // 1. Fetch raw candidates from InnerTube RDAMVM radio graph
-        val candidates = InnerTubeRadioEngine.getRadioCandidates(seedVideoId, count = 30)
+        val candidates = InnerTubeRadioEngine.getRadioCandidates(seedVideoId, count = 35)
         if (candidates.isEmpty()) {
             return emptyList()
         }
 
-        // 2. Extend queue using BitChord QueueBuilder (filters videos, enforces per-artist caps, deduplicates recordings)
+        // 2. Personalize candidate ordering based on user listening history & skips
+        val profile = loadProfile()
+        val prioritizedCandidates = if (profile.artistAffinity.isNotEmpty() || profile.recentSkippedSongIds.isNotEmpty()) {
+            candidates.sortedByDescending { candidate ->
+                var score = 0f
+                if (profile.recentSkippedSongIds.contains(candidate.songId)) score -= 8f
+                if (profile.preferredSongIds.contains(candidate.songId)) score += 4f
+                val artistScores = BitChordQueueBuilder.artistSet(candidate.artist).mapNotNull { profile.artistAffinity[it] }
+                if (artistScores.isNotEmpty()) score += artistScores.average().toFloat()
+                score
+            }
+        } else {
+            candidates
+        }
+
+        // 3. Extend queue using BitChord QueueBuilder (filters videos, enforces per-artist caps, deduplicates recordings)
         return BitChordQueueBuilder.extend(
             existing = activeQueue,
-            candidates = candidates,
+            candidates = prioritizedCandidates,
             limit = limit
         )
     }

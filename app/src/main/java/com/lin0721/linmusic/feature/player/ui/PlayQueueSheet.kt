@@ -602,7 +602,7 @@ private fun PlayModeInfoRow(
             }
             isIntelligence -> {
                 iconRes = MimikyuIcons.ShuffleSmart
-                label = "Heartbeat"
+                label = "Automix"
             }
             playMode == PlayMode.LIST_LOOP -> {
                 iconRes = MimikyuIcons.Repeat
@@ -712,7 +712,7 @@ private fun BottomActionRow(
             Text(
                 when {
                     isRoaming -> "Turn off roaming"
-                    isIntelligence -> "Turn off heartbeat"
+                    isIntelligence -> "Turn off automix"
                     else -> "Shuffle"
                 },
                 color = Color.White,

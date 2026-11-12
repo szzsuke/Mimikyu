@@ -2,8 +2,12 @@ package com.lin0721.linmusic.core.ui.components
 
 import android.media.AudioDeviceInfo
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
@@ -607,7 +611,7 @@ fun MimikyuNavigationBar(
     val tabs = remember(showCreateEntry) {
         buildList {
             add(MimikyuTab("Home", MimikyuIcons.Home, MimikyuIcons.HomeFilled, Screen.Home))
-            add(MimikyuTab("Library", MimikyuIcons.Library, MimikyuIcons.LibraryFilled, Screen.Library))
+            add(MimikyuTab("Library", MimikyuIcons.PlaylistNote, MimikyuIcons.PlaylistNote, Screen.Library))
             add(MimikyuTab("Search", MimikyuIcons.Search, MimikyuIcons.SearchFilled, Screen.Search))
             if (showCreateEntry) {
                 add(MimikyuTab("Create", 0, 0, null))
@@ -666,49 +670,122 @@ fun MimikyuNavigationBar(
 
                     val isSearchTab = tab.screen is Screen.Search
 
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .pressable(
-                                style = MimikyuPress.Tab,
-                                onLongClick = if (isSearchTab) onSearchLongClick else null
-                            ) {
-                                if (tab.screen != null) {
+                    if (tab.screen != null) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .pressable(
+                                    style = MimikyuPress.Tab,
+                                    onLongClick = if (isSearchTab) onSearchLongClick else null
+                                ) {
                                     onNavigate(tab.screen)
-                                } else {
-                                    onCreateClick()
-                                }
-                            },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        if (tab.screen != null) {
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
                             Icon(
                                 painter = painterResource(if (isSelected) tab.activeIconRes else tab.inactiveIconRes),
                                 contentDescription = tab.label,
                                 tint = if (isSelected) MimikyuSilver else MimikyuLightGray,
                                 modifier = Modifier.size(22.dp)
                             )
-                        } else {
-                            Icon(
-                                painter = painterResource(if (isCreateMenuOpen) MimikyuIcons.Close else MimikyuIcons.Plus),
-                                contentDescription = tab.label,
-                                tint = if (isCreateMenuOpen) MimikyuSilver else MimikyuLightGray,
-                                modifier = Modifier.size(26.dp)
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = tab.label,
+                                color = if (isSelected) MimikyuSilver else MimikyuLightGray,
+                                fontSize = 10.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                style = TextStyle(
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                )
                             )
                         }
-                        Spacer(modifier = Modifier.height(3.dp))
-                        Text(
-                            text = tab.label,
-                            color = if (isSelected) MimikyuSilver else MimikyuLightGray,
-                            fontSize = 10.5.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                            style = TextStyle(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false)
-                            )
+                    } else {
+                        // Spotify-style smooth morphing Create Button
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val isPressed by interactionSource.collectIsPressedAsState()
+                        val pressScale by animateFloatAsState(
+                            targetValue = if (isPressed) 0.90f else 1f,
+                            animationSpec = tween(120),
+                            label = "create_press_scale"
                         )
+                        val createProgress by animateFloatAsState(
+                            targetValue = if (isCreateMenuOpen) 1f else 0f,
+                            animationSpec = tween(240, easing = FastOutSlowInEasing),
+                            label = "create_tab_morph"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null
+                                ) {
+                                    onCreateClick()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // Inactive State: Plus Icon + "Create" text
+                            if (createProgress < 1f) {
+                                Column(
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            alpha = (1f - createProgress * 2.5f).coerceIn(0f, 1f)
+                                            scaleX = (1f - createProgress * 0.2f) * pressScale
+                                            scaleY = (1f - createProgress * 0.2f) * pressScale
+                                        },
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(MimikyuIcons.Plus),
+                                        contentDescription = tab.label,
+                                        tint = MimikyuLightGray,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = tab.label,
+                                        color = MimikyuLightGray,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        maxLines = 1,
+                                        style = TextStyle(
+                                            platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                        )
+                                    )
+                                }
+                            }
+
+                            // Active State: Spotify white circular button with crisp Close cross
+                            if (createProgress > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            alpha = ((createProgress - 0.2f) / 0.8f).coerceIn(0f, 1f)
+                                            val s = (0.7f + 0.3f * createProgress) * pressScale
+                                            scaleX = s
+                                            scaleY = s
+                                            rotationZ = (1f - createProgress) * -45f
+                                        }
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "Close",
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

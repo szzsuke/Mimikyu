@@ -260,9 +260,11 @@ class SearchViewModel(
             return
         }
         suggestJob = viewModelScope.launch {
-            delay(300)
-            repository.getSuggestions(query).firstOrNull()?.onSuccess { suggestions ->
-                _inputState.value = _inputState.value.copy(suggestions = suggestions, suggestionQuery = query)
+            delay(200)
+            repository.getSuggestions(query).collect { result ->
+                result.onSuccess { suggestions ->
+                    _inputState.value = _inputState.value.copy(suggestions = suggestions, suggestionQuery = query)
+                }
             }
         }
     }
@@ -461,7 +463,7 @@ class SearchViewModel(
                 RecentSearchItem(
                     id = "song_$songId",
                     title = suggestion.text,
-                    subtitle = "Song • " + suggestion.artistName,
+                    subtitle = "Song • " + extractPrimaryArtist(suggestion.artistName),
                     imageUrl = suggestion.coverUrl,
                     type = com.lin0721.linmusic.feature.search.data.RecentItemType.SONG,
                     rawId = songId,

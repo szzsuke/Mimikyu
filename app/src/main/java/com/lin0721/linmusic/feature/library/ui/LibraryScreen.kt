@@ -3,6 +3,7 @@ package com.lin0721.linmusic.feature.library.ui
 import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -77,6 +78,10 @@ import android.content.Intent
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import com.lin0721.linmusic.core.auth.UserProfile
+import org.koin.compose.koinInject
+import com.lin0721.linmusic.core.player.PlayerManager
+import com.lin0721.linmusic.core.spotify.SpotifyPlaylist
+import com.lin0721.linmusic.core.spotify.SpotifySessionState
 
 
 
@@ -101,6 +106,19 @@ fun LibraryScreen(
     val sortOrder by viewModel.sortOrder.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val isGridView by viewModel.isGridView.collectAsStateWithLifecycle()
+    val playerManager: PlayerManager = koinInject()
+    val spotifySession by viewModel.spotifySession.collectAsStateWithLifecycle()
+    val spotifyPlaylists by viewModel.spotifyPlaylists.collectAsStateWithLifecycle()
+    val isSpotifyLoading by viewModel.isSpotifyLoading.collectAsStateWithLifecycle()
+    val spotifyDetailTracks by viewModel.spotifyDetailTracks.collectAsStateWithLifecycle()
+    val isSpotifyDetailLoading by viewModel.isSpotifyDetailLoading.collectAsStateWithLifecycle()
+    val importState by viewModel.importState.collectAsStateWithLifecycle()
+
+    var showSpotifyLogin by remember { mutableStateOf(false) }
+    var showSpotifyHub by remember { mutableStateOf(false) }
+    var activeSpotifyPlaylist by remember { mutableStateOf<SpotifyPlaylist?>(null) }
+    var isSpotifyLikedSongs by remember { mutableStateOf(false) }
+    var showSpotifyDetail by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     var showLoginSheet by remember { mutableStateOf(false) }
@@ -250,13 +268,24 @@ fun LibraryScreen(
                     ) {
 
 
-                        Text(
-                            text = "Your Library",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(MimikyuIcons.PlaylistNote),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(MimikyuSpacing.sm))
+                            Text(
+                                text = "Your Library",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
 
                         MimikyuIconButton(onClick = { isSearchActive = true }) {
                             Icon(painter = painterResource(MimikyuIcons.Search), contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurface)
@@ -357,6 +386,12 @@ fun LibraryScreen(
                                                             onLikedSongsClick()
                                                         } else if (item.isDownloadedSongs || item.id == "downloaded_songs") {
                                                             onDownloadedSongsClick()
+                                                        } else if (item.id == "spotify_playlist") {
+                                                            if (spotifySession.isAuthenticated) {
+                                                                showSpotifyHub = true
+                                                            } else {
+                                                                showSpotifyLogin = true
+                                                            }
                                                         } else if (item.type == LibraryItemType.PLAYLIST) {
                                                             item.id.toLongOrNull()?.let { onPlaylistClick(it) }
                                                         } else if (item.type == LibraryItemType.ARTIST) {
@@ -401,6 +436,12 @@ fun LibraryScreen(
                                                     onLikedSongsClick()
                                                 } else if (item.isDownloadedSongs || item.id == "downloaded_songs") {
                                                     onDownloadedSongsClick()
+                                                } else if (item.id == "spotify_playlist") {
+                                                    if (spotifySession.isAuthenticated) {
+                                                        showSpotifyHub = true
+                                                    } else {
+                                                        showSpotifyLogin = true
+                                                    }
                                                 } else if (item.type == LibraryItemType.PLAYLIST) {
                                                     item.id.toLongOrNull()?.let { onPlaylistClick(it) }
                                                 } else if (item.type == LibraryItemType.ARTIST) {
@@ -421,7 +462,6 @@ fun LibraryScreen(
                         }
                     }
 
-
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -441,6 +481,97 @@ fun LibraryScreen(
             }
         }
     }
+
+        // Spotify sheets
+        if (showSpotifyLogin) {
+            SpotifyLoginSheet(
+                onDismiss = { showSpotifyLogin = false },
+                onSuccess = { spDc, spKey ->
+                    showSpotifyLogin = false
+                    viewModel.connectSpotify(spDc, spKey)
+                }
+            )
+        }
+
+        if (showSpotifyDetail) {
+            SpotifyPlaylistDetailSheet(
+                playlist = activeSpotifyPlaylist,
+                isLikedSongs = isSpotifyLikedSongs,
+                tracks = spotifyDetailTracks,
+                isLoading = isSpotifyDetailLoading,
+                onBack = { showSpotifyDetail = false },
+                playerManager = playerManager,
+                importState = importState,
+                onImportToPlaylist = { targetId, tracks ->
+                    viewModel.importSpotifyTracksTo(targetId, tracks)
+                },
+                onCreateAndImport = { name, tracks ->
+                    viewModel.createPlaylistAndImportSpotifyTracks(name, tracks)
+                }
+            )
+            BackHandler(enabled = showSpotifyDetail && !LocalGlobalOverlayOpen.current) {
+                showSpotifyDetail = false
+            }
+        }
+
+        if (showSpotifyHub) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .height(56.dp)
+                            .padding(horizontal = MimikyuSpacing.sm),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        MimikyuIconButton(onClick = { showSpotifyHub = false }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(MimikyuSpacing.xs))
+                        Text(
+                            text = "Spotify",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    SpotifyLibraryContent(
+                        session = spotifySession,
+                        playlists = spotifyPlaylists,
+                        isLoading = isSpotifyLoading,
+                        onConnectClick = { showSpotifyLogin = true },
+                        onDisconnectClick = {
+                            viewModel.logoutSpotify()
+                            showSpotifyHub = false
+                        },
+                        onLikedSongsClick = {
+                            isSpotifyLikedSongs = true
+                            activeSpotifyPlaylist = null
+                            viewModel.loadSpotifyLikedSongs()
+                            showSpotifyDetail = true
+                        },
+                        onPlaylistClick = { playlist ->
+                            isSpotifyLikedSongs = false
+                            activeSpotifyPlaylist = playlist
+                            viewModel.loadSpotifyPlaylistTracks(playlist.id)
+                            showSpotifyDetail = true
+                        }
+                    )
+                }
+            }
+            BackHandler(enabled = showSpotifyHub && !LocalGlobalOverlayOpen.current && !showSpotifyDetail) {
+                showSpotifyHub = false
+            }
+        }
 
         // CreatePlaylists
         if (showCreateDialog) {
@@ -828,6 +959,283 @@ private fun LibrarySortAndFilterBar(
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(20.dp)
             )
+        }
+    }
+}
+
+
+@Composable
+private fun SpotifyLibraryContent(
+    session: SpotifySessionState,
+    playlists: List<SpotifyPlaylist>,
+    isLoading: Boolean,
+    onConnectClick: () -> Unit,
+    onDisconnectClick: () -> Unit,
+    onLikedSongsClick: () -> Unit,
+    onPlaylistClick: (SpotifyPlaylist) -> Unit
+) {
+    if (!session.isAuthenticated) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(MimikyuSpacing.xl),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                    .padding(24.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1DB954).copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(com.lin0721.linmusic.R.drawable.ic_spotify_minimal),
+                        contentDescription = "Spotify",
+                        tint = Color(0xFF1DB954),
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Text(
+                    text = "Connect with Spotify",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "Log in via Spotify Web Player to access your playlists and liked songs in Mimikyu, play them with instant audio streaming, or import them directly.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp
+                )
+
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        color = Color(0xFF1DB954),
+                        modifier = Modifier.size(32.dp)
+                    )
+                } else {
+                    MimikyuButton(
+                        onClick = onConnectClick,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954))
+                    ) {
+                        Text("Connect Spotify", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = MimikyuSpacing.md,
+                end = MimikyuSpacing.md,
+                top = 8.dp,
+                bottom = LocalBottomOverlayInset.current + 16.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // User Profile Row
+            item(key = "spotify_user_profile") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (session.profileImage != null) {
+                        AsyncImage(
+                            model = session.profileImage,
+                            contentDescription = "Spotify Avatar",
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1DB954)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = session.displayName?.take(1)?.uppercase() ?: "S",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = session.displayName ?: "Spotify User",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF1DB954))
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Connected • ${playlists.size} playlists",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    TextButton(onClick = onDisconnectClick) {
+                        Text("Disconnect", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                }
+            }
+
+            // Liked Songs Entry
+            item(key = "spotify_liked_songs_entry") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .clickable { onLikedSongsClick() }
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF450AF5), Color(0xFFC4EFD9))
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Favorite,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Liked Songs",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Playlist • Auto-synced from Spotify",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            if (isLoading && playlists.isEmpty()) {
+                item(key = "spotify_loading_indicator") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF1DB954),
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                }
+            }
+
+            // Playlists list
+            items(playlists, key = { it.id }) { playlist ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .clickable { onPlaylistClick(playlist) }
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val cover = playlist.images.firstOrNull()?.url
+                    if (!cover.isNullOrBlank()) {
+                        AsyncImage(
+                            model = cover,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        com.lin0721.linmusic.core.ui.components.CoverPlaceholder(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = playlist.name,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val totalTracks = playlist.tracks?.total ?: 0
+                        val ownerName = playlist.owner?.displayName ?: "Spotify"
+                        val subtitle = if (totalTracks > 0) {
+                            "Playlist • $totalTracks songs • by $ownerName"
+                        } else {
+                            "Playlist • by $ownerName"
+                        }
+                        Text(
+                            text = subtitle,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
         }
     }
 }

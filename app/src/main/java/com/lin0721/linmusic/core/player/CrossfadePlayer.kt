@@ -20,9 +20,7 @@ import com.lin0721.linmusic.core.log.AppLogger
 private const val TAG = "CrossfadePlayer"
 private const val FADE_STEP_MS = 16L
 
-// Play： ExoPlayer ， Player。
-// crossfadeMs  of Play，；
-// setMediaItems  of  future ，SimpleBasePlayer
+// 2-player peer crossfade engine with midpoint handoff (BitChord architecture)
 @OptIn(UnstableApi::class)
 class CrossfadePlayer(
     private val primary: ExoPlayer,
@@ -34,6 +32,7 @@ class CrossfadePlayer(
 
     private var handleAudioFocus = true
     private var metadataTransformer: ((MediaMetadata) -> MediaMetadata)? = null
+    var onCrossfadeActiveChanged: ((Boolean) -> Unit)? = null
 
     private var pendingIncoming: ExoPlayer? = null
     private var pendingFuture: SettableFuture<Unit>? = null
@@ -46,10 +45,25 @@ class CrossfadePlayer(
     private var preArmedBassSwap: Boolean = false
     private var preArmedStartPositionMs: Long = 0L
 
+    data class PendingPreArm(
+        val mediaItem: MediaItem,
+        val startPositionMs: Long,
+        val fadeMs: Long,
+        val bassSwap: Boolean
+    )
+    private var pendingPreArm: PendingPreArm? = null
+
     fun preArmStandby(mediaItem: MediaItem, startPositionMs: Long, fadeMs: Long, bassSwap: Boolean) {
-        if (outgoing != null) {
-            AppLogger.i(TAG, "preArmStandby: outgoing crossfade in progress, skipping pre-arm")
-            return
+        if (outgoing != null || incomingDeck != null || pendingIncoming != null) {
+            val elapsed = SystemClock.elapsedRealtime() - fadeStartElapsedMs
+            val progress = if (fadeDurationMs > 0L) (elapsed.toFloat() / fadeDurationMs).coerceIn(0f, 1f) else 1f
+            if (progress >= 1f) {
+                releaseOutgoing()
+            } else {
+                AppLogger.i(TAG, "preArmStandby: crossfade transition in progress (progress=$progress), queuing pre-arm for track ${mediaItem.mediaId}")
+                pendingPreArm = PendingPreArm(mediaItem, startPositionMs, fadeMs, bassSwap)
+                return
+            }
         }
         val standby = other(active)
         if (standby === preArmedPlayer && preArmedMediaId == mediaItem.mediaId) {
@@ -67,6 +81,7 @@ class CrossfadePlayer(
         preArmedStartPositionMs = startPositionMs
         standby.stop()
         standby.clearMediaItems()
+        standby.pauseAtEndOfMediaItems = false
         standby.volume = 0f
         standby.repeatMode = active.repeatMode
         standby.setMediaItem(mediaItem, startPositionMs.coerceAtLeast(0L))
@@ -93,6 +108,8 @@ class CrossfadePlayer(
     }
 
     private var outgoing: ExoPlayer? = null
+    private var incomingDeck: ExoPlayer? = null
+    private var handedOff = false
     private var outgoingStartGain = 1f
     private var fadeStartElapsedMs = 0L
     private var fadeDurationMs = 0L
@@ -104,11 +121,20 @@ class CrossfadePlayer(
     private val fadeStep = object : Runnable {
         override fun run() {
             val out = outgoing ?: return
+            val into = incomingDeck ?: return
             val progress = ((SystemClock.elapsedRealtime() - fadeStartElapsedMs).toFloat() / fadeDurationMs).coerceIn(0f, 1f)
             out.volume = CrossfadePolicy.fadeOutGain(progress, outgoingStartGain, bassSwap = isBassSwapActive)
-            active.volume = CrossfadePolicy.fadeInGain(progress)
+            into.volume = CrossfadePolicy.fadeInGain(progress)
+
             if (progress >= 1f) {
+                if (!handedOff) {
+                    handedOff = true
+                    takeOver(into)
+                }
+                into.volume = 1f
                 releaseOutgoing()
+                onCrossfadeActiveChanged?.invoke(false)
+                AppLogger.i(TAG, "Crossfade blend complete: handed over to incoming player at 100% volume")
             } else {
                 handler.postDelayed(this, FADE_STEP_MS)
             }
@@ -138,21 +164,18 @@ class CrossfadePlayer(
         invalidateState()
     }
 
-
     fun notifyMetadataChanged() {
         invalidateState()
     }
 
     override fun getState(): State {
         val base = super.getState()
-        // /Next，TracksPlay
         val commands = base.availableCommands.buildUpon()
             .add(Player.COMMAND_SEEK_TO_NEXT)
             .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
             .add(Player.COMMAND_SEEK_TO_PREVIOUS)
             .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
             .build()
-        // ， 1，
         val builder = base.buildUpon().setAvailableCommands(commands).setVolume(1f)
         val transformer = metadataTransformer
         if (transformer != null && !base.timeline.isEmpty) {
@@ -161,8 +184,6 @@ class CrossfadePlayer(
         return builder.build()
     }
 
-    // BUFFERING；， READY，
-    // PlayerManager Play，
     override fun getPlaceholderState(suggestedPlaceholderState: State): State {
         if (pendingIncoming == null) return suggestedPlaceholderState
         return suggestedPlaceholderState.buildUpon()
@@ -193,10 +214,7 @@ class CrossfadePlayer(
             return Futures.immediateVoidFuture()
         }
 
-        // ： of Play， future ，
-        // SimpleBasePlayer Play，
         val bassSwap = extras?.getBoolean(CrossfadePolicy.EXTRA_BASS_SWAP, false) ?: false
-
 
         pendingFuture?.let { stale -> handler.post { stale.set(Unit) } }
         pendingFuture = null
@@ -204,9 +222,8 @@ class CrossfadePlayer(
         pendingIncoming = null
 
         val standby = other(active)
-        if (fadeMs > 0L && (active.isPlaying || active.playWhenReady) && standby === preArmedPlayer && preArmedMediaId == requestedItem?.mediaId) {
+        if (fadeMs > 0L && standby === preArmedPlayer && preArmedMediaId == requestedItem?.mediaId) {
             AppLogger.i(TAG, "handleSetMediaItems: standby player pre-armed for ${requestedItem?.mediaId}, playbackState=${standby.playbackState}")
-            stopOutgoing()
             active.pauseAtEndOfMediaItems = true
             if (active.mediaItemCount > 1) {
                 val cur = active.currentMediaItemIndex
@@ -232,7 +249,8 @@ class CrossfadePlayer(
             }
         }
 
-        if (fadeMs <= 0L || !active.isPlaying) {
+        val isStillActive = active.isPlaying || active.playWhenReady || active.playbackState == Player.STATE_READY
+        if (fadeMs <= 0L || !isStillActive) {
             clearPreArmed()
             abandoned?.run {
                 stop()
@@ -245,9 +263,13 @@ class CrossfadePlayer(
         return startCrossfade(mediaItems, startIndex, maxOf(startPositionMs, startOffsetMs), fadeMs, bassSwap)
     }
 
-    // /Next onPlayerCommandRequest  PlayerManager；
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
-        if (seekCommand != 0) {
+        val curIndex = active.currentMediaItemIndex
+        val isDifferentItem = mediaItemIndex >= 0 && curIndex >= 0 && mediaItemIndex != curIndex
+        if (isDifferentItem || seekCommand == Player.COMMAND_SEEK_TO_NEXT ||
+            seekCommand == Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM ||
+            seekCommand == Player.COMMAND_SEEK_TO_PREVIOUS ||
+            seekCommand == Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) {
             clearPreArmed()
         }
         return when (seekCommand) {
@@ -285,8 +307,13 @@ class CrossfadePlayer(
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
         if (!playWhenReady) {
-            completePendingImmediately()
+            incomingDeck?.playWhenReady = false
+            outgoing?.playWhenReady = false
+            completePendingImmediately(playWhenReady = false)
             releaseOutgoing()
+        } else {
+            incomingDeck?.playWhenReady = true
+            outgoing?.playWhenReady = true
         }
         return super.handleSetPlayWhenReady(playWhenReady)
     }
@@ -309,6 +336,7 @@ class CrossfadePlayer(
         pendingFuture = null
         pendingIncoming = null
         outgoing = null
+        incomingDeck = null
         primary.release()
         secondary.release()
         return Futures.immediateVoidFuture()
@@ -345,24 +373,29 @@ class CrossfadePlayer(
     }
 
     private fun executeTransition(incoming: ExoPlayer, fadeMs: Long, bassSwap: Boolean) {
-        val previous = active
-        takeOver(incoming)
-        outgoing = previous
-        outgoingStartGain = previous.volume
+        stopOutgoing()
+        outgoing = active
+        incomingDeck = incoming
+        outgoingStartGain = outgoing?.volume?.takeIf { it > 0f } ?: 1f
         fadeStartElapsedMs = SystemClock.elapsedRealtime()
         fadeDurationMs = fadeMs.coerceAtLeast(1L)
         isBassSwapActive = bassSwap
-        AppLogger.i(TAG, "executeTransition: executing crossfade blend fadeDurationMs=$fadeDurationMs bassSwap=$isBassSwapActive")
+        handedOff = false
+        incoming.volume = 0f
+        incoming.playWhenReady = true
+        AppLogger.i(TAG, "executeTransition: executing 2-player crossfade blend fadeDurationMs=$fadeDurationMs bassSwap=$isBassSwapActive")
+        onCrossfadeActiveChanged?.invoke(true)
         handler.post(fadeStep)
     }
 
     private fun onIncomingReady(incoming: ExoPlayer) {
         if (pendingIncoming !== incoming || incoming.playbackState != Player.STATE_READY) return
-        executeTransition(incoming, pendingFadeMs, pendingBassSwap)
+        val fadeMs = pendingFadeMs
+        val bassSwap = pendingBassSwap
         finishPending()
+        executeTransition(incoming, fadeMs, bassSwap)
     }
 
-    // PlayPlay，Pause
     private fun takeOver(incoming: ExoPlayer) {
         val previous = active
         previous.setAudioAttributes(audioAttributes, false)
@@ -371,15 +404,24 @@ class CrossfadePlayer(
     }
 
     private fun completePendingImmediately(playWhenReady: Boolean = true) {
-        val incoming = pendingIncoming ?: return
-        val previous = active
-        takeOver(incoming)
-        incoming.volume = 1f
-        if (!playWhenReady) incoming.playWhenReady = false
-        previous.stop()
-        previous.clearMediaItems()
-        previous.volume = 1f
+        val incoming = pendingIncoming ?: incomingDeck
+        if (incoming != null && !handedOff) {
+            handedOff = true
+            takeOver(incoming)
+        }
+        incoming?.volume = 1f
+        if (!playWhenReady) incoming?.playWhenReady = false
+        val previous = outgoing
+        if (previous != null) {
+            previous.stop()
+            previous.clearMediaItems()
+            previous.volume = 1f
+        }
+        outgoing = null
+        incomingDeck = null
+        handedOff = false
         finishPending()
+        onCrossfadeActiveChanged?.invoke(false)
     }
 
     private fun finishPending() {
@@ -389,20 +431,36 @@ class CrossfadePlayer(
         future?.set(Unit)
     }
 
-    // ：，CurrentPlay
     private fun releaseOutgoing() {
-        val hadOutgoing = outgoing != null
         stopOutgoing()
-        if (hadOutgoing) active.volume = 1f
+        val standby = other(active)
+        if (standby !== preArmedPlayer) {
+            standby.stop()
+            standby.clearMediaItems()
+            standby.volume = 1f
+        }
+        active.volume = 1f
     }
 
     private fun stopOutgoing() {
         handler.removeCallbacks(fadeStep)
-        val out = outgoing ?: return
+        val out = outgoing
         outgoing = null
-        out.stop()
-        out.clearMediaItems()
-        out.volume = 1f
+        incomingDeck = null
+        handedOff = false
+        if (out != null) {
+            out.stop()
+            out.clearMediaItems()
+            out.pauseAtEndOfMediaItems = false
+            out.volume = 1f
+            onCrossfadeActiveChanged?.invoke(false)
+        }
+        val queued = pendingPreArm
+        if (queued != null) {
+            pendingPreArm = null
+            AppLogger.i(TAG, "stopOutgoing: executing queued pre-arm for track ${queued.mediaItem.mediaId}")
+            preArmStandby(queued.mediaItem, queued.startPositionMs, queued.fadeMs, queued.bassSwap)
+        }
     }
 
     private fun other(player: ExoPlayer): ExoPlayer = if (player === primary) secondary else primary
@@ -411,10 +469,8 @@ class CrossfadePlayer(
         override fun onEvents(player: Player, events: Player.Events) {
             val exo = player as? ExoPlayer ?: return
             if (exo === pendingIncoming && exo.playbackState == Player.STATE_READY) {
-                // ExoPlayer ，
                 handler.post { onIncomingReady(exo) }
             }
-            // ：，， of  READY
             if (exo === active && pendingIncoming != null &&
                 (exo.playbackState == Player.STATE_ENDED || exo.playerError != null)
             ) {
@@ -423,7 +479,6 @@ class CrossfadePlayer(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            // ， PlayerManager  of
             val incoming = pendingIncoming ?: return
             if (incoming.playerError == null) return
             AppLogger.w(TAG, "Crossfade target failed to load, switching directly", error)
@@ -431,7 +486,6 @@ class CrossfadePlayer(
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            // PauseCurrentPlay：， of Pause
             if (playWhenReady || active.playWhenReady) return
             completePendingImmediately(playWhenReady = false)
             releaseOutgoing()

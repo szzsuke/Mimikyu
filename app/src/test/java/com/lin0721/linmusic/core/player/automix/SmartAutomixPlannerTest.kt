@@ -49,7 +49,7 @@ class SmartAutomixPlannerTest {
         assertEquals(TransitionStyle.DJ_BLEND, plan.transitionStyle)
         assertEquals(250L, plan.incomingCueMs)
         assertEquals(0.55f, plan.bassSwapFraction)
-        assertEquals(3800L, plan.fadeDurationMs)
+        assertEquals(8000L, plan.fadeDurationMs)
         assertEquals(curr.contentEndMs - plan.fadeDurationMs, plan.transitionStartMs)
     }
 

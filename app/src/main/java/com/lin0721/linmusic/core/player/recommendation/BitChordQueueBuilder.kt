@@ -1,4 +1,4 @@
-﻿package com.lin0721.linmusic.core.player.recommendation
+package com.lin0721.linmusic.core.player.recommendation
 
 import com.lin0721.linmusic.core.player.QueueItem
 import java.util.Locale
@@ -98,7 +98,7 @@ object BitChordQueueBuilder {
      */
     fun artistSet(raw: String): Set<String> = raw.lowercase(Locale.ROOT)
         .replace(TOPIC, " ")
-        .split(",", "&", "Â·", "â€¢", ";", " feat", " ft.", " ft ", " x ", " with ")
+        .split(",", "&", "·", "•", "・", ";", " feat", " ft.", " ft ", " x ", " with ")
         .map { it.replace(PUNCTUATION, " ").replace(SPACES, " ").trim() }
         .filter { it.isNotEmpty() }
         .toSet()

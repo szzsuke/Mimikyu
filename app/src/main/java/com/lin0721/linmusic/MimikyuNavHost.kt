@@ -29,6 +29,7 @@ fun MimikyuNavHost(
     onLoginScreenVisibilityChanged: (Boolean) -> Unit,
     onNavigateToLikedSongs: () -> Unit = {},
     onNavigateToDownloadedSongs: () -> Unit = {},
+    onNavigateToLibrary: () -> Unit = {},
     onNavigateToPlaylist: (id: Long, isAlbum: Boolean) -> Unit,
     onNavigateToArtist: (Long) -> Unit,
     onNavigateToMv: (Long, String) -> Unit,
@@ -91,6 +92,7 @@ fun MimikyuNavHost(
                     onNavigateToRecentPlay = onNavigateToRecentPlay,
                     onNavigateToLikedSongs = onNavigateToLikedSongs,
                     onNavigateToDownloadedSongs = onNavigateToDownloadedSongs,
+                    onNavigateToLibrary = onNavigateToLibrary,
                     onLoginScreenVisibilityChanged = onLoginScreenVisibilityChanged
                 )
             }

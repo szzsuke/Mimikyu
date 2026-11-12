@@ -1,6 +1,7 @@
 package com.lin0721.linmusic.core.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -99,6 +100,7 @@ fun MimikyuWireframePlaylistCard(
     coverUrl: String = "",
     isLikedSongs: Boolean = false,
     isDownloadedSongs: Boolean = false,
+    isSpotify: Boolean = false,
     isDailyMix: Boolean = false,
     dailyMixNumber: Int = 1,
     isGenreMix: Boolean = false,
@@ -113,10 +115,11 @@ fun MimikyuWireframePlaylistCard(
     val interactionSource = remember { MutableInteractionSource() }
 
     // Palette & sleeve colors
-    val (primaryAccent, sleeveColor) = remember(title, isLikedSongs, isDownloadedSongs, isDailyMix, dailyMixNumber, isGenreMix, accentColor) {
+    val (primaryAccent, sleeveColor) = remember(title, isLikedSongs, isDownloadedSongs, isSpotify, isDailyMix, dailyMixNumber, isGenreMix, accentColor) {
         when {
             isLikedSongs -> Color(0xFFFF9BA5) to Color(0xFF1F1F20)
             isDownloadedSongs -> Color(0xFF9E8BFF) to Color(0xFF1F1F20)
+            isSpotify -> Color(0xFF1DB954) to Color(0xFF1F1F20)
             isDailyMix -> {
                 when (dailyMixNumber % 6) {
                     1 -> Color(0xFF7FE4C6) to Color(0xFF234C43) // Mint / Teal
@@ -149,6 +152,7 @@ fun MimikyuWireframePlaylistCard(
     val countDisplayColor = trackCountColor ?: when {
         isLikedSongs -> MimikyuPink
         isDownloadedSongs -> Color(0xFFB490E0)
+        isSpotify -> Color(0xFF1DB954)
         isDailyMix || isGenreMix -> primaryAccent
         else -> Color(0xFF888888)
     }
@@ -227,6 +231,24 @@ fun MimikyuWireframePlaylistCard(
                                 contentDescription = "Liked Songs",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+
+                    // Case 1b: Spotify Minimalist Card
+                    isSpotify -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color(0xFF18181A))
+                                .border(1.dp, Color(0xFF28282B), RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_spotify_minimal),
+                                contentDescription = "Spotify",
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(44.dp)
                             )
                         }
                     }

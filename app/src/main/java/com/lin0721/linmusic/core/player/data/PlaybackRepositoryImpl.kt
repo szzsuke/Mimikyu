@@ -237,119 +237,51 @@ class PlaybackRepositoryImpl(
     }.getOrNull()
 
     override fun getSimilarSongs(songId: Long): Flow<Result<List<Track>>> = flow {
-        // ── PRIMARY: Try native Catalog Similar Tracks (Radio Algorithm) ──
-        if (auroraApiClient != null) {
-            try {
-                val title = YouTubeIdRegistry.getTitle(songId)
-                val artist = YouTubeIdRegistry.getArtist(songId)
-                val query = if (artist.isNotBlank()) "$title $artist" else title
-                if (query.isNotBlank()) {
-                    val matched = auroraApiClient.searchTracks(query, limit = 1).firstOrNull()
-                    if (matched != null) {
-                        val similarCatalogTracks = auroraApiClient.getSimilarTracks(matched.id, limit = 20)
-                        if (similarCatalogTracks.isNotEmpty()) {
-                            val tracks = similarCatalogTracks.map { st ->
-                                val cleanTitle = cleanMetadataText(st.title)
-                                val cleanArtist = cleanMetadataText(st.author)
-                                val cleanAlbum = cleanMetadataText(st.albumName ?: "")
-                                val durationSec = (st.durationMs / 1000).toInt()
-                                val coverUrl = st.artworkUrl ?: ""
+        // ── Direct BitChord Radio Pipeline (InnerTube RDAMVM + BitChord QueueBuilder) ──
+        val title = YouTubeIdRegistry.getTitle(songId)
+        val artist = YouTubeIdRegistry.getArtist(songId)
+        val videoId = YouTubeIdRegistry.getVideoId(songId)?.takeIf { it.isNotBlank() }
+            ?: com.lin0721.linmusic.core.player.recommendation.InnerTubeRadioEngine.resolveVideoId(songId, title, artist)
 
-                                val mappedArtists = st.author.split(Regex(""",\s*|/\s*""")).map { aName ->
-                                    val cleanA = cleanMetadataText(aName)
-                                    val aId = YouTubeIdRegistry.registerArtistByName(cleanA)
-                                    com.lin0721.linmusic.core.model.Artist(id = aId, name = cleanA)
-                                }.ifEmpty {
-                                    val aId = YouTubeIdRegistry.registerArtistByName(cleanArtist)
-                                    listOf(com.lin0721.linmusic.core.model.Artist(id = aId, name = cleanArtist))
-                                }
-
-                                val simiSongId = YouTubeIdRegistry.registerPlaceholder(
-                                    title = cleanTitle,
-                                    artist = cleanArtist,
-                                    album = cleanAlbum,
-                                    durationSec = durationSec,
-                                    coverUrl = coverUrl,
-                                    artists = mappedArtists
-                                ).id
-
-                                val track = Track(
-                                    id = simiSongId,
-                                    name = cleanTitle,
-                                    ar = mappedArtists,
-                                    al = com.lin0721.linmusic.core.model.Album(
-                                        id = (st.albumId ?: cleanAlbum).hashCode().toLong() and 0x7FFFFFFFL,
-                                        name = cleanAlbum,
-                                        picUrl = coverUrl
-                                    ),
-                                    dt = st.durationMs
-                                )
-                                YouTubeIdRegistry.registerTrack(track)
-                                track
-                            }
-                            emit(Result.success(tracks))
-                            return@flow
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Spotify getSimilarTracks failed for songId=$songId: ${e.message}")
-            }
-        }
-
-        // ── FALLBACK: Use YouTube Music's related/next endpoint for similar songs ──
-        val videoId = YouTubeIdRegistry.getVideoId(songId)
-        if (videoId == null) {
+        if (videoId.isNullOrBlank()) {
             emit(Result.success(emptyList()))
             return@flow
         }
 
-        val tracks = try {
-            val nextResult = com.metrolist.innertube.YouTube.next(
-                endpoint = com.metrolist.innertube.models.WatchEndpoint(videoId = videoId)
-            ).getOrThrow()
+        try {
+            val candidates = com.lin0721.linmusic.core.player.recommendation.InnerTubeRadioEngine.getRadioCandidates(videoId, count = 35)
+            val filtered = com.lin0721.linmusic.core.player.recommendation.BitChordQueueBuilder.extend(
+                existing = emptyList(),
+                candidates = candidates,
+                limit = 20
+            )
 
-            val relatedSongs = nextResult.relatedEndpoint?.let { endpoint ->
-                com.metrolist.innertube.YouTube.related(endpoint).getOrNull()?.songs
-            }?.filter { it.id.isNotBlank() } ?: emptyList()
-
-            val candidateSongs = if (relatedSongs.isNotEmpty()) relatedSongs else nextResult.items.filter { it.id.isNotBlank() }
-
-            candidateSongs.mapNotNull { song ->
-                try {
-                    val cleanTitle = cleanMetadataText(song.title)
-                    val artistName = cleanMetadataText(song.artists.joinToString(", ") { cleanMetadataText(it.name) })
-                    val simiSongId = YouTubeIdRegistry.register(
-                        videoId = song.id,
-                        title = cleanTitle,
-                        artist = artistName,
-                        coverUrl = song.thumbnail.orEmpty(),
-                        durationSec = song.duration ?: 0
-                    )
-                    Track(
-                        id = simiSongId,
-                        name = cleanTitle,
-                        ar = song.artists.map { com.lin0721.linmusic.core.model.Artist(
-                            id = (it.id ?: it.name).hashCode().toLong() and 0x7FFFFFFFL,
-                            name = cleanMetadataText(it.name)
-                        ) },
-                        al = com.lin0721.linmusic.core.model.Album(
-                            id = (song.album?.id ?: "").hashCode().toLong() and 0x7FFFFFFFL,
-                            name = cleanMetadataText(song.album?.name ?: ""),
-                            picUrl = song.thumbnail
-                        ),
-                        dt = (song.duration?.toLong() ?: 0L) * 1000L
-                    )
-                } catch (e: Exception) {
-                    null
+            val tracks = filtered.map { q ->
+                val artists = com.lin0721.linmusic.core.player.recommendation.BitChordQueueBuilder.artistSet(q.artist).map { aName ->
+                    val aId = YouTubeIdRegistry.registerArtistByName(aName)
+                    com.lin0721.linmusic.core.model.Artist(id = aId, name = aName)
+                }.ifEmpty {
+                    val aId = YouTubeIdRegistry.registerArtistByName(q.artist)
+                    listOf(com.lin0721.linmusic.core.model.Artist(id = aId, name = q.artist))
                 }
+
+                Track(
+                    id = q.songId,
+                    name = q.title,
+                    ar = artists,
+                    al = com.lin0721.linmusic.core.model.Album(
+                        id = (q.album.orEmpty()).hashCode().toLong() and 0x7FFFFFFFL,
+                        name = q.album.orEmpty(),
+                        picUrl = q.coverUrl
+                    ),
+                    dt = (q.durationSec * 1000).toLong()
+                )
             }
+            emit(Result.success(tracks))
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            AppLogger.w(TAG, "getSimilarSongs failed for videoId=$videoId", e)
-            emptyList()
+            AppLogger.w(TAG, "getSimilarSongs failed for songId=$songId (videoId=$videoId)", e)
+            emit(Result.success(emptyList()))
         }
-        emit(Result.success(tracks))
     }
 
     override fun getIntelligenceSongs(songId: Long, playlistId: Long): Flow<Result<List<Track>>> = flow {

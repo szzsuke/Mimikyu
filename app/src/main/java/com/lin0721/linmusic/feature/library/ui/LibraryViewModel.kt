@@ -1,5 +1,7 @@
 package com.lin0721.linmusic.feature.library.ui
 
+import com.lin0721.linmusic.feature.playlist.ui.PlaylistImportState
+
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -53,7 +55,7 @@ data class LibraryItem(
 )
 
 enum class LibraryFilter {
-    PLAYLIST, ALBUM, ARTIST
+    PLAYLIST, ALBUM, ARTIST, SPOTIFY
 }
 
 // Playlists： LibraryFilter.PLAYLIST ，Playlists and SavePlaylists
@@ -79,7 +81,8 @@ class LibraryViewModel(
     private val resourceProvider: ResourceProvider,
     private val playlistMutationBus: PlaylistMutationBus,
     private val songDownloadManager: SongDownloadManager,
-    private val downloadPreferences: com.lin0721.linmusic.core.download.DownloadPreferences? = null
+    private val downloadPreferences: com.lin0721.linmusic.core.download.DownloadPreferences? = null,
+    val spotifyRepository: com.lin0721.linmusic.core.spotify.SpotifyRepository? = null
 ) : ViewModel() {
 
     private val sharedPrefs = context.getSharedPreferences("library_prefs", Context.MODE_PRIVATE)
@@ -114,10 +117,43 @@ class LibraryViewModel(
     private val _isGridView = MutableStateFlow(getGridViewFromPrefs())
     val isGridView: StateFlow<Boolean> = _isGridView.asStateFlow()
 
+    // Spotify Integration
+    val spotifySession: StateFlow<com.lin0721.linmusic.core.spotify.SpotifySessionState> =
+        spotifyRepository?.sessionState ?: MutableStateFlow(com.lin0721.linmusic.core.spotify.SpotifySessionState())
+
+    private val _spotifyPlaylists = MutableStateFlow<List<com.lin0721.linmusic.core.spotify.SpotifyPlaylist>>(emptyList())
+    val spotifyPlaylists: StateFlow<List<com.lin0721.linmusic.core.spotify.SpotifyPlaylist>> = _spotifyPlaylists.asStateFlow()
+
+    private val _isSpotifyLoading = MutableStateFlow(false)
+    val isSpotifyLoading: StateFlow<Boolean> = _isSpotifyLoading.asStateFlow()
+
+    private val _spotifyDetailTracks = MutableStateFlow<List<com.lin0721.linmusic.core.model.Track>>(emptyList())
+    val spotifyDetailTracks: StateFlow<List<com.lin0721.linmusic.core.model.Track>> = _spotifyDetailTracks.asStateFlow()
+
+    private val _isSpotifyDetailLoading = MutableStateFlow(false)
+    val isSpotifyDetailLoading: StateFlow<Boolean> = _isSpotifyDetailLoading.asStateFlow()
+
+    private val _importState = MutableStateFlow(PlaylistImportState())
+    val importState: StateFlow<PlaylistImportState> = _importState.asStateFlow()
+
     init {
         viewModelScope.launch {
             userPreferences.userProfile.collect { profile ->
                 loadLibraryData(profile)
+            }
+        }
+
+        viewModelScope.launch {
+            spotifyRepository?.sessionState?.collect { session ->
+                if (session.isAuthenticated) {
+                    if (session.accountName.isBlank() || session.accountName == "Spotify User" || session.avatarUrl == null) {
+                        launch { spotifyRepository.refreshProfile() }
+                    }
+                    if (_spotifyPlaylists.value.isEmpty()) {
+                        loadSpotifyPlaylists()
+                    }
+                }
+                loadLibraryData()
             }
         }
 
@@ -314,6 +350,28 @@ class LibraryViewModel(
                 )
                 mappedPlaylists.add(1, downloadedSongsItem)
 
+                // Prepend Spotify entry in Your Playlists
+                val spotifySess = spotifySession.value
+                val spotifySubtitle = if (spotifySess.isAuthenticated) {
+                    val name = spotifySess.displayName ?: spotifySess.accountName.ifBlank { "Connected" }
+                    val pCount = _spotifyPlaylists.value.size
+                    if (pCount > 0) "Playlist · $pCount playlists · $name" else "Playlist · $name"
+                } else {
+                    "Playlist · Connect Spotify"
+                }
+                val spotifyItem = LibraryItem(
+                    id = "spotify_playlist",
+                    title = "Spotify",
+                    subtitle = spotifySubtitle,
+                    coverUrl = "",
+                    type = LibraryItemType.PLAYLIST,
+                    updateTime = System.currentTimeMillis(),
+                    trackCount = _spotifyPlaylists.value.size,
+                    playCount = 0,
+                    isOwnedByMe = true
+                )
+                mappedPlaylists.add(2, spotifyItem)
+
                 val mappedArtists = emptyList<LibraryItem>()
 
                 val mappedAlbums = albums.map { album ->
@@ -376,6 +434,7 @@ class LibraryViewModel(
             LibraryFilter.PLAYLIST -> list.filter { it.type == LibraryItemType.PLAYLIST }
             LibraryFilter.ALBUM -> list.filter { it.type == LibraryItemType.ALBUM }
             LibraryFilter.ARTIST -> list.filter { it.type == LibraryItemType.ARTIST }
+            LibraryFilter.SPOTIFY -> emptyList()
         }
 
         // Playlists：Created by me / Create of （"Liked Songs" and "Top Tracks" of ）
@@ -602,6 +661,115 @@ class LibraryViewModel(
                     _toastEvent.emit(e.toUserMessage(resourceProvider))
                 }
             }
+        }
+    }
+
+
+    fun loadSpotifyPlaylists() {
+        viewModelScope.launch {
+            _isSpotifyLoading.value = true
+            spotifyRepository?.getPlaylists()?.fold(
+                onSuccess = { playlists ->
+                    _spotifyPlaylists.value = playlists
+                    _isSpotifyLoading.value = false
+                    loadLibraryData()
+                },
+                onFailure = { error ->
+                    _isSpotifyLoading.value = false
+                    _toastEvent.emit(error.message ?: "Failed to load Spotify playlists")
+                }
+            )
+        }
+    }
+
+    fun connectSpotify(spDc: String, spKey: String = "") {
+        viewModelScope.launch {
+            _isSpotifyLoading.value = true
+            spotifyRepository?.connectWithCookies(spDc, spKey)?.fold(
+                onSuccess = {
+                    _toastEvent.emit("Connected to Spotify!")
+                    launch { spotifyRepository.refreshProfile() }
+                    loadSpotifyPlaylists()
+                },
+                onFailure = { error ->
+                    _isSpotifyLoading.value = false
+                    _toastEvent.emit(error.message ?: "Failed to connect to Spotify")
+                }
+            )
+        }
+    }
+
+    fun logoutSpotify() {
+        viewModelScope.launch {
+            spotifyRepository?.logout()
+            _spotifyPlaylists.value = emptyList()
+            _toastEvent.emit("Disconnected from Spotify")
+            loadLibraryData()
+        }
+    }
+
+    fun loadSpotifyPlaylistTracks(playlistId: String) {
+        viewModelScope.launch {
+            _isSpotifyDetailLoading.value = true
+            spotifyRepository?.getPlaylistTracks(playlistId)?.fold(
+                onSuccess = { tracks ->
+                    _spotifyDetailTracks.value = tracks
+                    _isSpotifyDetailLoading.value = false
+                },
+                onFailure = { error ->
+                    _isSpotifyDetailLoading.value = false
+                    _toastEvent.emit(error.message ?: "Failed to load playlist tracks")
+                }
+            )
+        }
+    }
+
+    fun loadSpotifyLikedSongs() {
+        viewModelScope.launch {
+            _isSpotifyDetailLoading.value = true
+            spotifyRepository?.getLikedSongs()?.fold(
+                onSuccess = { tracks ->
+                    _spotifyDetailTracks.value = tracks
+                    _isSpotifyDetailLoading.value = false
+                },
+                onFailure = { error ->
+                    _isSpotifyDetailLoading.value = false
+                    _toastEvent.emit(error.message ?: "Failed to load liked songs")
+                }
+            )
+        }
+    }
+
+    fun prepareImportState() {
+        viewModelScope.launch {
+            _importState.value = PlaylistImportState(isLoading = true)
+            val uid = userProfile.value?.uid ?: 0L
+            userPlaylistRepository.getUserPlaylists(uid).collect { result ->
+                result.onSuccess { items ->
+                    _importState.value = PlaylistImportState(items = items, isLoading = false)
+                }.onFailure {
+                    _importState.value = PlaylistImportState(items = emptyList(), isLoading = false)
+                }
+            }
+        }
+    }
+
+    fun importSpotifyTracksTo(targetPlaylistId: Long, tracks: List<com.lin0721.linmusic.core.model.Track>) {
+        viewModelScope.launch {
+            playlistRepository.manipulatePlaylistTracks("add", targetPlaylistId, tracks.map { it.id }).collect { result ->
+                result.onSuccess {
+                    _toastEvent.emit("Added ${tracks.size} songs to playlist")
+                }.onFailure { e ->
+                    _toastEvent.emit(e.message ?: "Failed to add songs")
+                }
+            }
+        }
+    }
+
+    fun createPlaylistAndImportSpotifyTracks(name: String, tracks: List<com.lin0721.linmusic.core.model.Track>) {
+        viewModelScope.launch {
+            createPlaylist(name, tracks)
+            _toastEvent.emit("Created '$name' with ${tracks.size} songs")
         }
     }
 }

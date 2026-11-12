@@ -16,10 +16,15 @@ import com.lin0721.linmusic.core.download.DownloadTrackInfo
 import com.lin0721.linmusic.core.download.SongDownloadManager
 import com.lin0721.linmusic.core.localmusic.LocalCoverArtCache
 import com.lin0721.linmusic.core.log.AppLogger
+import com.lin0721.linmusic.core.model.Album
+import com.lin0721.linmusic.core.model.Artist
+import com.lin0721.linmusic.core.model.Track
 import com.lin0721.linmusic.core.network.AppError
 import com.lin0721.linmusic.core.player.data.PlaybackRepository
 import com.lin0721.linmusic.core.player.resolver.OfficialAudioTrackResolver
 import com.lin0721.linmusic.core.preferences.SettingsPreferences
+import com.lin0721.linmusic.core.player.automix.AutomixStatus
+import com.lin0721.linmusic.core.player.automix.TransitionPlan
 import com.lin0721.linmusic.core.player.automix.FastTrackAnalyzer
 import com.lin0721.linmusic.core.player.automix.SmartAutomixPlanner
 import com.lin0721.linmusic.core.player.automix.TransitionStyle
@@ -46,6 +51,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "PlayerManager"
 
@@ -102,6 +108,60 @@ class PlayerManager(
 
     private val _currentTrack = MutableStateFlow<MediaItem?>(null)
     val currentTrack: StateFlow<MediaItem?> = _currentTrack.asStateFlow()
+
+    private val _isMixing = MutableStateFlow(false)
+    val isMixing: StateFlow<Boolean> = _isMixing.asStateFlow()
+
+    private val _automixStatus = MutableStateFlow(AutomixStatus())
+    val automixStatus: StateFlow<AutomixStatus> = _automixStatus.asStateFlow()
+
+    private var activeAutomixSongId: Long = -1L
+    private var activeAutomixPlan: TransitionPlan? = null
+    private var activeAutomixNextSongId: Long = -1L
+    private var isAnalyzingAutomix: Boolean = false
+    private var isStandbyPreArmed: Boolean = false
+    private var pendingHandoffIndex: Int? = null
+
+    fun setMixing(mixing: Boolean) {
+        _isMixing.value = mixing
+        if (!mixing) {
+            mixingJob?.cancel()
+            _automixStatus.value = _automixStatus.value.copy(isMixing = false)
+            val handoffIdx = pendingHandoffIndex
+            if (handoffIdx != null) {
+                pendingHandoffIndex = null
+                playbackQueue.setCurrentIndex(handoffIdx)
+                saveQueueState()
+                val item = playbackQueue.itemAt(handoffIdx)
+                if (item != null) {
+                    val cached = metadataEnricher?.getCached(item.songId.toString())
+                        ?: metadataEnricher?.getCachedByQuery(item.title, item.artist)
+                    val effectiveArt = cached?.artworkUrl ?: item.coverUrl
+                    val effectiveTitle = cached?.title ?: item.title
+                    val effectiveArtist = cached?.artist ?: item.artist
+                    val optItem = item.copy(title = effectiveTitle, artist = effectiveArtist, coverUrl = effectiveArt)
+                    _currentTrack.value = optItem.toMediaItem(item.localUri ?: "about:blank", playbackQueue.playContext.value, effectiveArt)
+                    reportStartPlay(optItem.toMediaItem(item.localUri ?: "about:blank", playbackQueue.playContext.value, effectiveArt))
+                    AppLogger.i(TAG, "Mix complete: smoothly handed over UI to '${item.title}' at index $handoffIdx")
+                }
+            }
+        }
+    }
+
+    fun toggleAutomix() {
+        scope.launch {
+            val newState = !automixEnabled
+            settingsPreferences.saveAutomixEnabled(newState)
+            automixEnabled = newState
+            _automixStatus.value = AutomixStatus(isEnabled = newState)
+            if (!newState) {
+                activeAutomixPlan = null
+                isStandbyPreArmed = false
+                controllerHolder.clearPreArmed()
+            }
+        }
+    }
+    private var mixingJob: Job? = null
 
     // "Connect Device" of  idï¼›null ï¼Œ
     private val _preferredOutputDeviceId = MutableStateFlow<Int?>(null)
@@ -207,6 +267,30 @@ class PlayerManager(
     private var trackPausedAccumMs: Long = 0L
     private var trackLastPauseElapsedMs: Long? = null
 
+    // Background transition & streaming wake lock (prevents CPU sleep between tracks)
+    private val powerManager by lazy { context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager }
+    private val transitionWakeLock by lazy {
+        try {
+            powerManager?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Mimikyu:TransitionWakeLock")?.apply {
+                setReferenceCounted(false)
+            }
+        } catch (_: Exception) { null }
+    }
+
+    private fun acquireWakeLock(timeoutMs: Long = 30_000L) {
+        try {
+            transitionWakeLock?.acquire(timeoutMs)
+        } catch (_: Exception) {}
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (transitionWakeLock?.isHeld == true) {
+                transitionWakeLock?.release()
+            }
+        } catch (_: Exception) {}
+    }
+
     // Deferred queue restoration on cold launch
     private val queueRestored = CompletableDeferred<Unit>()
 
@@ -273,7 +357,7 @@ class PlayerManager(
                     roaming.onProgressTick(songId, remainingMs)
                     maybeAutoRecommendNextSong(songId, remainingMs)
                     maybePrefetchNextTrackUrl(remainingMs)
-                    maybeScheduleAutoCrossfade(songId, remainingMs, dur)
+                    tickAutomix(songId, positionMs, dur)
                     maybeCheckStreamCacheProgress(songId, positionMs, dur)
                 }
 
@@ -551,7 +635,7 @@ class PlayerManager(
             }
         }
 
-        if (curIdx >= playbackQueue.size - 1 && playbackQueue.playMode.value != PlayMode.SINGLE_LOOP && playbackQueue.playMode.value != PlayMode.LIST_LOOP) {
+        if (curIdx >= playbackQueue.size - 1 && playbackQueue.playMode.value != PlayMode.SINGLE_LOOP) {
             val currentItem = playbackQueue.itemAt(curIdx)
             if (currentItem != null) {
                 scope.launch {
@@ -674,6 +758,8 @@ class PlayerManager(
     }
 
     fun pause() {
+        _isMixing.value = false
+        mixingJob?.cancel()
         _playWhenReady.value = false
         controllerHolder.pause()
         saveState()
@@ -699,6 +785,8 @@ class PlayerManager(
     }
 
     fun seekTo(positionMs: Long) {
+        _isMixing.value = false
+        mixingJob?.cancel()
         autoCrossfadeScheduledSongId = -1L
         autoCrossfadeTriggeredSongId = -1L
         autoCrossfadeJob?.cancel()
@@ -712,8 +800,10 @@ class PlayerManager(
         if (songId != -1L) {
             val dur = progress.duration.value
             if (dur > 0L) {
-                val remainingMs = dur - positionMs
-                maybeScheduleAutoCrossfade(songId, remainingMs, dur)
+                if (positionMs < (activeAutomixPlan?.transitionStartMs ?: 0L)) {
+                    autoCrossfadeTriggeredSongId = -1L
+                }
+                tickAutomix(songId, positionMs, dur)
             }
             maybeCheckStreamCacheProgress(songId, positionMs, progress.duration.value)
         }
@@ -850,6 +940,7 @@ class PlayerManager(
         debounceMs: Long = 0L
     ) {
         val item = playbackQueue.itemAt(index) ?: return
+        acquireWakeLock()
 
         // 0. Idempotent Guard: if this track is already playing or buffering on active ExoPlayer,
         // and we are not forcing a refresh, skip reload completely to prevent 0:00 restarts!
@@ -875,11 +966,6 @@ class PlayerManager(
         pendingStartPosition = startPosition
 
         val fromIndex = playbackQueue.currentIndex.value
-        playbackQueue.setCurrentIndex(index)
-        pendingTargetSongId = item.songId
-        saveQueueState()
-
-        // 1. Optimistic UI Updates: immediately set current track and loading/buffering state
         val originalCover = item.coverUrl.takeIf { it.isNotBlank() }
         val cached = metadataEnricher?.getCached(item.songId.toString())
             ?: metadataEnricher?.getCachedByQuery(item.title, item.artist)
@@ -890,14 +976,25 @@ class PlayerManager(
         val effectiveTitle = cached?.title?.takeIf { it.isNotBlank() } ?: item.title
         val effectiveArtist = cached?.artist?.takeIf { it.isNotBlank() } ?: item.artist
 
-        val optimisticItem = item.copy(
-            title = effectiveTitle,
-            artist = effectiveArtist,
-            coverUrl = effectiveArt
-        )
-        val optimisticMediaItem = optimisticItem.toMediaItem(item.localUri ?: "about:blank", playbackQueue.playContext.value, effectiveArt)
-        _currentTrack.value = optimisticMediaItem
-        _playWhenReady.value = playWhenReady
+        val isAutoCrossfading = autoTransition && canAutoCrossfade() && pendingAutoFadeMs > 0L
+        if (!isAutoCrossfading) {
+            playbackQueue.setCurrentIndex(index)
+            pendingTargetSongId = item.songId
+            saveQueueState()
+
+            // 1. Optimistic UI Updates: immediately set current track and loading/buffering state
+            val optimisticItem = item.copy(
+                title = effectiveTitle,
+                artist = effectiveArtist,
+                coverUrl = effectiveArt
+            )
+            val optimisticMediaItem = optimisticItem.toMediaItem(item.localUri ?: "about:blank", playbackQueue.playContext.value, effectiveArt)
+            _currentTrack.value = optimisticMediaItem
+            _playWhenReady.value = playWhenReady
+        } else {
+            pendingHandoffIndex = index
+            AppLogger.i(TAG, "Automix active: keeping UI on current track while blending in background until mix completes (nextIndex=$index)")
+        }
         if (autoTransition) {
             _isPlaying.value = true
             _isLoading.value = false
@@ -940,8 +1037,41 @@ class PlayerManager(
                         preResolveAndQueueUpcoming(index)
         val remainingInQueue = playbackQueue.size - 1 - index
         if (remainingInQueue < 3) {
-            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true, seedVideoId = item.videoId)
         }
+                return@launch
+            }
+
+            // 0. Fast-path: Pre-armed Auto-transition (0ms network delay!)
+            val effectiveFastUrl = prefetchedUrl ?: if (!forceRefresh && autoTransition) {
+                prefetchedStream?.takeIf {
+                    it.songId == item.songId && it.expiresAtMs > System.currentTimeMillis() + 60_000L
+                }?.url
+            } else null
+
+            if (autoTransition && effectiveFastUrl != null && !forceRefresh) {
+                prefetchedStream = null
+                AppLogger.i(TAG, "[Playback] FAST AUTO-TRANSITION using pre-armed stream for ${item.title}")
+                val finalArt = if (item.coverUrl.isNotBlank()) {
+                    com.lin0721.linmusic.core.metadata.SongArtworkEngine.optimizeArtworkUrl(item.coverUrl, com.lin0721.linmusic.core.metadata.SongArtworkEngine.PLAYER_ART_PX)
+                } else {
+                    effectiveArt
+                }
+                val mediaItem = item.toMediaItem(effectiveFastUrl, playbackQueue.playContext.value, finalArt)
+                pendingSkipFromIndex = null
+                val cueMs = pendingStartOffset?.takeIf { it.first == item.songId }?.second ?: 0L
+                controllerHolder.playItem(
+                    mediaItem.withCrossfade(autoTransition = true, startPosition = cueMs),
+                    playbackQueue.playMode.value,
+                    startPosition = cueMs,
+                    playWhenReady = playWhenReady
+                )
+                preArmNextUpcomingTrack(index)
+                preResolveAndQueueUpcoming(index)
+                val remainingInQueue = playbackQueue.size - 1 - index
+                if (remainingInQueue < 3) {
+                    maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true, seedVideoId = item.videoId)
+                }
                 return@launch
             }
 
@@ -967,7 +1097,7 @@ class PlayerManager(
                         preResolveAndQueueUpcoming(index)
         val remainingInQueue = playbackQueue.size - 1 - index
         if (remainingInQueue < 3) {
-            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true, seedVideoId = item.videoId)
         }
                 return@launch
             }
@@ -1053,7 +1183,7 @@ class PlayerManager(
                         preResolveAndQueueUpcoming(index)
         val remainingInQueue = playbackQueue.size - 1 - index
         if (remainingInQueue < 3) {
-            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true, seedVideoId = item.videoId)
         }
                 return@launch
             }
@@ -1075,7 +1205,7 @@ class PlayerManager(
                         preResolveAndQueueUpcoming(index)
         val remainingInQueue = playbackQueue.size - 1 - index
         if (remainingInQueue < 3) {
-            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true, seedVideoId = item.videoId)
         }
                 return@launch
             }
@@ -1181,7 +1311,7 @@ class PlayerManager(
                 preResolveAndQueueUpcoming(index)
         val remainingInQueue = playbackQueue.size - 1 - index
         if (remainingInQueue < 3) {
-            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true)
+            maybeAutoRecommendNextSong(item.songId, remainingMs = 0L, forceImmediate = true, seedVideoId = resolvedData.videoId)
         }
 
         if (!startInLow && lqUrl.isNotBlank() && lqUrl != hqUrl) {
@@ -1336,6 +1466,7 @@ class PlayerManager(
     // Play next song on natural track completion
     private fun playNextOnEnded() {
         if (playbackQueue.isEmpty) return
+        acquireWakeLock()
         val now = SystemClock.elapsedRealtime()
         if (now - lastAutoAdvanceMs < 1500L) {
             AppLogger.w(TAG, "playNextOnEnded debounced: called again within ${now - lastAutoAdvanceMs}ms")
@@ -1347,7 +1478,7 @@ class PlayerManager(
         val curIdx = playbackQueue.currentIndex.value
         val isAtEnd = curIdx >= playbackQueue.size - 1
 
-        if (isAtEnd && playbackQueue.playMode.value != PlayMode.SINGLE_LOOP && playbackQueue.playMode.value != PlayMode.LIST_LOOP) {
+        if (isAtEnd && playbackQueue.playMode.value != PlayMode.SINGLE_LOOP) {
             val currentItem = playbackQueue.itemAt(curIdx)
             if (currentItem != null) {
                 scope.launch {
@@ -1385,8 +1516,8 @@ class PlayerManager(
 
         val isCrossfading = canAutoCrossfade() && pendingAutoFadeMs > 0L
 
-        // 0ms instant transition if ExoPlayer native queue already holds next item AND crossfade is NOT active
-        if (!isCrossfading && nextItem != null && controllerHolder.hasNextMediaItem()) {
+        // 0ms instant transition if ExoPlayer native queue already holds next item AND crossfade/automix is NOT active
+        if (!canAutoCrossfade() && nextItem != null && controllerHolder.hasNextMediaItem()) {
             val nextSongId = nextItem.songId.toString()
             if (controllerHolder.peekNextMediaId() == nextSongId) {
                 AppLogger.i(TAG, "[Playback] playNextOnEnded: advancing seamlessly via ExoPlayer native queue")
@@ -1401,14 +1532,14 @@ class PlayerManager(
         val validUrl = prefetchedStream?.takeIf {
             it.songId == nextItem?.songId && it.expiresAtMs > System.currentTimeMillis() + 60_000L
         }?.url
-        prefetchedStream = null
         fetchUrlAndPlay(nextIndex, prefetchedUrl = validUrl, autoTransition = true)
     }
 
 
     // Pre-arm standby player on Player 2 immediately at 0:00 of track N
     private fun preArmNextUpcomingTrack(currentIndex: Int) {
-        if (!canAutoCrossfade()) return
+        // When Automix is active, tickAutomix handles single-coordinator analysis and pre-arming smoothly
+        if (!crossfadeEnabled || automixEnabled) return
         val currentItem = playbackQueue.itemAt(currentIndex) ?: return
         val nextItem = playbackQueue.nextItemByMode() ?: return
         if (playbackQueue.playMode.value == PlayMode.SINGLE_LOOP) return
@@ -1484,64 +1615,164 @@ class PlayerManager(
         }
     }
 
-    // Automix and Smart Crossfade scheduling
-    private fun maybeScheduleAutoCrossfade(songId: Long, remainingMs: Long, durationMs: Long) {
-        if (!canAutoCrossfade()) return
-        if (autoCrossfadeScheduledSongId == songId || autoCrossfadeTriggeredSongId == songId) return
-        if (remainingMs > CrossfadePolicy.ANALYSIS_WINDOW_MS) return
-        autoCrossfadeScheduledSongId = songId
-        autoCrossfadeJob?.cancel()
-        autoCrossfadeJob = scope.launch {
-            val sourceUri = requestedSource?.takeIf { it.first == songId }?.second
-            val currentItem = playbackQueue.itemAt(playbackQueue.currentIndex.value)
-            val nextItem = playbackQueue.nextItemByMode() ?: return@launch
+    // Direct tick-driven Automix & DJ mixing controller (BitChord-style)
+    private fun tickAutomix(songId: Long, positionMs: Long, durationMs: Long) {
+        if (!automixEnabled || playbackQueue.playMode.value == PlayMode.SINGLE_LOOP) {
+            if (_automixStatus.value.isEnabled) _automixStatus.value = AutomixStatus()
+            return
+        }
 
-            // 1. Ultra-fast analysis of current track
-            val currAnalysis = fastTrackAnalyzer.analyzeTrack(
-                trackId = songId.toString(),
-                uri = sourceUri,
-                durationMs = durationMs,
-                title = currentItem?.title.orEmpty(),
-                artist = currentItem?.artist.orEmpty()
+        if (_isMixing.value) {
+            val plan = activeAutomixPlan
+            val styleName = plan?.transitionStyle?.name?.replace('_', ' ') ?: "DJ BLEND"
+            _automixStatus.value = AutomixStatus(
+                isEnabled = true,
+                isMixing = true,
+                currentBpm = plan?.outgoingBpm?.toInt() ?: 0,
+                nextBpm = plan?.incomingBpm?.toInt() ?: 0,
+                transitionStyle = plan?.transitionStyle ?: TransitionStyle.DJ_BLEND,
+                displayText = "MIXING \u2022 $styleName"
             )
+            return
+        }
 
-            // 2. Ultra-fast analysis of next track (incoming)
-            val nextUri = nextItem.localUri
-                ?: downloadPreferences.findVerifiedRecord(nextItem.songId)?.mediaStoreUri
-                ?: prefetchedStream?.takeIf {
-                    it.songId == nextItem.songId && it.expiresAtMs > System.currentTimeMillis() + 60_000L
-                }?.url
+        if (activeAutomixSongId != songId) {
+            activeAutomixSongId = songId
+            activeAutomixPlan = null
+            activeAutomixNextSongId = -1L
+            isAnalyzingAutomix = false
+            isStandbyPreArmed = false
+        }
 
-            val nextAnalysis = fastTrackAnalyzer.analyzeTrack(
-                trackId = nextItem.songId.toString(),
-                uri = nextUri,
-                durationMs = (nextItem.durationSec * 1000L).takeIf { it > 0L } ?: 180_000L,
-                title = nextItem.title,
-                artist = nextItem.artist
+        if (autoCrossfadeTriggeredSongId == songId) return
+
+        // If queue is running low, proactively populate upcoming songs
+        val curIdx = playbackQueue.currentIndex.value
+        if (curIdx >= playbackQueue.size - 2 && playbackQueue.playMode.value != PlayMode.SINGLE_LOOP) {
+            maybeAutoRecommendNextSong(songId, remainingMs = (durationMs - positionMs).coerceAtLeast(0L))
+        }
+
+        val nextItem = playbackQueue.nextItemByMode() ?: return
+
+        val remainingMs = durationMs - positionMs
+
+        // 1. Compute transition plan if not yet available for current (outgoing, incoming) pair
+        if (activeAutomixPlan == null || activeAutomixNextSongId != nextItem.songId) {
+            if (isAnalyzingAutomix) return
+            isAnalyzingAutomix = true
+            _automixStatus.value = AutomixStatus(
+                isEnabled = true,
+                isAnalyzing = true,
+                displayText = "AUTOMIX \u2022 ANALYZING..."
             )
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val sourceUri = requestedSource?.takeIf { it.first == songId }?.second
+                    val currentItem = playbackQueue.itemAt(playbackQueue.currentIndex.value)
+                    val currAnalysis = fastTrackAnalyzer.analyzeTrack(
+                        trackId = songId.toString(),
+                        uri = sourceUri,
+                        durationMs = durationMs,
+                        title = currentItem?.title.orEmpty(),
+                        artist = currentItem?.artist.orEmpty()
+                    )
+                    val streamData = resolveStreamForItem(nextItem)
+                    val nextUri = nextItem.localUri
+                        ?: downloadPreferences.findVerifiedRecord(nextItem.songId)?.mediaStoreUri
+                        ?: streamData?.streamUrl
+                    val nextAnalysis = fastTrackAnalyzer.analyzeTrack(
+                        trackId = nextItem.songId.toString(),
+                        uri = nextUri,
+                        durationMs = (nextItem.durationSec * 1000L).takeIf { it > 0L } ?: 180_000L,
+                        title = nextItem.title,
+                        artist = nextItem.artist
+                    )
+                    val isSameAlbum = currentItem != null && !currentItem.album.isNullOrBlank() &&
+                            currentItem.album.equals(nextItem.album, ignoreCase = true)
 
-            val isSameAlbum = currentItem != null && !currentItem.album.isNullOrBlank() &&
-                    currentItem.album.equals(nextItem.album, ignoreCase = true)
+                    val plan = SmartAutomixPlanner.planTransition(
+                        currentAnalysis = currAnalysis,
+                        nextAnalysis = nextAnalysis,
+                        isSameAlbumSequential = isSameAlbum,
+                        configuredFadeMs = 3800L,
+                        automixEnabled = true
+                    )
 
-            // 3. Plan intelligent transition
-            val plan = SmartAutomixPlanner.planTransition(
-                currentAnalysis = currAnalysis,
-                nextAnalysis = nextAnalysis,
-                isSameAlbumSequential = isSameAlbum,
-                configuredFadeMs = crossfadeDurationMs.toLong(),
-                automixEnabled = automixEnabled
-            )
+                    if (streamData != null && streamData.streamUrl.isNotBlank()) {
+                        prefetchedStream = PrefetchedStream(
+                            songId = nextItem.songId,
+                            videoId = streamData.videoId,
+                            url = streamData.streamUrl,
+                            expiresAtMs = streamData.expiresAtMs
+                        )
+                        val cached = metadataEnricher?.getCached(nextItem.songId.toString())
+                            ?: metadataEnricher?.getCachedByQuery(nextItem.title, nextItem.artist)
+                        val effectiveArt = cached?.artworkUrl ?: nextItem.coverUrl
+                        val mediaItem = nextItem.toMediaItem(
+                            url = streamData.streamUrl,
+                            playContext = playbackQueue.playContext.value,
+                            artworkUri = effectiveArt
+                        )
+                        withContext(Dispatchers.Main) {
+                            if (_currentTrack.value?.mediaId?.toLongOrNull() == songId) {
+                                controllerHolder.preArmStandby(
+                                    mediaItem = mediaItem,
+                                    startPositionMs = plan.incomingCueMs,
+                                    fadeMs = plan.fadeDurationMs,
+                                    bassSwap = (plan.transitionStyle == TransitionStyle.DJ_BLEND)
+                                )
+                                isStandbyPreArmed = true
+                                AppLogger.i(TAG, "Standby player pre-armed early for '${nextItem.title}' (cue=${plan.incomingCueMs}ms, trigger=${plan.transitionStartMs}ms)")
+                            }
+                        }
+                    }
 
-            val fadeMs = plan.fadeDurationMs
-            if (fadeMs <= 0L) return@launch
-            val triggerMs = plan.transitionStartMs
-            pendingStartOffset = nextItem.songId to plan.incomingCueMs
-            pendingBassSwap = (plan.transitionStyle == TransitionStyle.DJ_BLEND)
+                    withContext(Dispatchers.Main) {
+                        if (_currentTrack.value?.mediaId?.toLongOrNull() == songId) {
+                            activeAutomixPlan = plan
+                            activeAutomixNextSongId = nextItem.songId
+                            isAnalyzingAutomix = false
+                            pendingStartOffset = nextItem.songId to plan.incomingCueMs
+                            pendingBassSwap = (plan.transitionStyle == TransitionStyle.DJ_BLEND)
 
-            AppLogger.i(TAG, "Automix plan: style=${plan.transitionStyle} trigger=${triggerMs}ms/${durationMs}ms fade=${fadeMs}ms cue=${plan.incomingCueMs}ms bassSwap=${plan.bassSwapFraction}")
+                            val winStart = if (durationMs > 0L) (plan.transitionStartMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0.90f
+                            val winEnd = if (durationMs > 0L) ((plan.transitionStartMs + plan.fadeDurationMs).toFloat() / durationMs).coerceIn(winStart, 1.0f) else 1.0f
+                            val win = winStart .. winEnd
 
-            // 4. Pre-arm standby player on Player 2 so it enters STATE_READY well before triggerMs arrives!
-            launch(Dispatchers.IO) {
+                            _automixStatus.value = AutomixStatus(
+                                isEnabled = true,
+                                currentStatus = "analysed",
+                                nextStatus = "analysed",
+                                isAnalyzing = false,
+                                isArmed = isStandbyPreArmed,
+                                isMixing = _isMixing.value,
+                                currentBpm = plan.outgoingBpm.toInt(),
+                                nextBpm = plan.incomingBpm.toInt(),
+                                transitionStyle = plan.transitionStyle,
+                                transitionWindow = win,
+                                displayText = "AUTOMIX \u2022 ${plan.outgoingBpm.toInt()} \u2794 ${plan.incomingBpm.toInt()} BPM"
+                            )
+                            AppLogger.i(TAG, "Automix plan ready: ${plan.transitionStyle} trigger=${plan.transitionStartMs}ms fade=${plan.fadeDurationMs}ms cue=${plan.incomingCueMs}ms bpm=${plan.outgoingBpm.toInt()}->${plan.incomingBpm.toInt()}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    isAnalyzingAutomix = false
+                    AppLogger.w(TAG, "Automix analysis error: ${e.message}")
+                }
+            }
+            return
+        }
+
+        // 2. We have a valid plan
+        val plan = activeAutomixPlan ?: return
+        val triggerMs = plan.transitionStartMs
+        val fadeMs = plan.fadeDurationMs
+        val timeUntilSec = ((triggerMs - positionMs).coerceAtLeast(0L) / 1000L).toInt()
+
+        // 3. Pre-arm standby player on Player 2 at 15s lead
+        if (!isStandbyPreArmed && (positionMs >= triggerMs - 15_000L || remainingMs <= 15_000L)) {
+            isStandbyPreArmed = true
+            scope.launch(Dispatchers.IO) {
                 try {
                     val streamData = resolveStreamForItem(nextItem)
                     if (streamData != null && streamData.streamUrl.isNotBlank()) {
@@ -1561,36 +1792,54 @@ class PlayerManager(
                         )
                         withContext(Dispatchers.Main) {
                             if (_currentTrack.value?.mediaId?.toLongOrNull() == songId) {
+                                AppLogger.i(TAG, "Automix preArm: pre-arming standby player for track ${nextItem.title} (${nextItem.songId}) at ${plan.incomingCueMs}ms (fadeMs=$fadeMs)")
                                 controllerHolder.preArmStandby(
                                     mediaItem = mediaItem,
                                     startPositionMs = plan.incomingCueMs,
                                     fadeMs = fadeMs,
-                                    bassSwap = pendingBassSwap
+                                    bassSwap = (plan.transitionStyle == TransitionStyle.DJ_BLEND)
                                 )
                             }
                         }
                     }
                 } catch (e: Exception) {
-                    AppLogger.w(TAG, "Failed to pre-arm standby player: ${e.message}")
+                    AppLogger.w(TAG, "Automix pre-arm error: ${e.message}")
                 }
             }
+        }
 
-            while (true) {
-                if (!canAutoCrossfade() || _currentTrack.value?.mediaId?.toLongOrNull() != songId) return@launch
-                val positionMs = controllerHolder.currentPosition
-                if (!_isPlaying.value) {
-                    delay(500L)
-                    continue
-                }
-                val waitMs = triggerMs - positionMs
-                if (waitMs <= 0L || positionMs >= currAnalysis.contentEndMs) break
-                delay(waitMs.coerceAtMost(500L))
-            }
+        val styleLabel = plan.transitionStyle.name.replace('_', ' ')
+        val winStart = if (durationMs > 0L) (triggerMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0.90f
+        val winEnd = if (durationMs > 0L) ((triggerMs + fadeMs).toFloat() / durationMs).coerceIn(winStart, 1.0f) else 1.0f
+        val win = winStart .. winEnd
+        _automixStatus.value = _automixStatus.value.copy(
+            isEnabled = true,
+            currentStatus = "analysed",
+            nextStatus = "analysed",
+            isArmed = isStandbyPreArmed,
+            currentBpm = plan.outgoingBpm.toInt(),
+            nextBpm = plan.incomingBpm.toInt(),
+            transitionStyle = plan.transitionStyle,
+            timeUntilTransitionSec = timeUntilSec,
+            transitionWindow = win,
+            displayText = "AUTOMIX \u2022 ${plan.outgoingBpm.toInt()} \u2794 ${plan.incomingBpm.toInt()} BPM \u2022 $styleLabel"
+        )
 
+        // 4. Trigger transition when trigger point is reached!
+        if (positionMs >= triggerMs || (durationMs > 5000L && remainingMs <= 1000L)) {
             autoCrossfadeTriggeredSongId = songId
             autoCrossfadeTriggeredTimeMs = SystemClock.elapsedRealtime()
             pendingAutoFadeMs = fadeMs
-            AppLogger.i(TAG, "Triggering Automix transition: songId=$songId style=${plan.transitionStyle} fadeMs=$fadeMs")
+            AppLogger.i(TAG, "Triggering Automix transition NOW: songId=$songId style=${plan.transitionStyle} fadeMs=$fadeMs")
+            _isMixing.value = true
+            _automixStatus.value = AutomixStatus(
+                isEnabled = true,
+                isMixing = true,
+                currentBpm = plan.outgoingBpm.toInt(),
+                nextBpm = plan.incomingBpm.toInt(),
+                transitionStyle = plan.transitionStyle,
+                displayText = "MIXING \u2022 $styleLabel"
+            )
             playNextOnEnded()
         }
     }
@@ -1602,18 +1851,17 @@ class PlayerManager(
         val songId = mediaId.toLongOrNull()
         val uri = localConfiguration?.uri?.toString()
         if (songId != null && uri != null) requestedSource = songId to uri
-        val isAllowed = crossfadeEnabled || automixEnabled
-        val fadeMs = CrossfadePolicy.fadeMsFor(
-            autoTransition = autoTransition,
-            enabled = isAllowed,
-            isPlaying = _isPlaying.value,
-            startPositionMs = startPosition,
-            autoFadeMs = pendingAutoFadeMs
-        )
+        val isAllowed = automixEnabled || crossfadeEnabled
+        val fadeMs = if (autoTransition && isAllowed && pendingAutoFadeMs > 0L) {
+            val f = pendingAutoFadeMs
+            pendingAutoFadeMs = 0L
+            f
+        } else {
+            0L
+        }
         if (fadeMs <= 0L) return this
         val startOffsetMs = pendingStartOffset?.takeIf { it.first == songId }?.second ?: 0L
         val bassSwapActive = pendingBassSwap
-        pendingAutoFadeMs = 0L
         pendingBassSwap = false
         val extras = Bundle(mediaMetadata.extras ?: Bundle()).apply {
             putLong(CrossfadePolicy.EXTRA_CROSSFADE_MS, fadeMs)
@@ -1687,7 +1935,12 @@ class PlayerManager(
     private var lastAutoRecommendTriggeredSongId: Long = -1L
     private var autoplayLoadInProgress = false
 
-    private fun maybeAutoRecommendNextSong(songId: Long, remainingMs: Long, forceImmediate: Boolean = false) {
+    private fun maybeAutoRecommendNextSong(
+        songId: Long,
+        remainingMs: Long,
+        forceImmediate: Boolean = false,
+        seedVideoId: String? = null
+    ) {
         val curIdx = playbackQueue.currentIndex.value
         val itemCount = playbackQueue.size
         val singleLoop = playbackQueue.playMode.value == PlayMode.SINGLE_LOOP
@@ -1704,8 +1957,17 @@ class PlayerManager(
 
         scope.launch {
             try {
+                val effectiveVideoId = seedVideoId?.takeIf { it.isNotBlank() }
+                    ?: currentItem.videoId?.takeIf { it.isNotBlank() }
+                    ?: YouTubeIdRegistry.getVideoId(currentItem.songId)?.takeIf { it.isNotBlank() }
+                    ?: YouTubeIdRegistry.getVideoId(songId)?.takeIf { it.isNotBlank() }
+
+                val effectiveItem = if (!effectiveVideoId.isNullOrBlank() && currentItem.videoId != effectiveVideoId) {
+                    currentItem.copy(videoId = effectiveVideoId)
+                } else currentItem
+
                 val nextTracks = effectiveRecommendationEngine.getAutoplayBatch(
-                    seedTrack = currentItem,
+                    seedTrack = effectiveItem,
                     activeQueue = playbackQueue.items.value,
                     limit = BitChordQueueBuilder.MAX_QUEUED_AUTOPLAY
                 )
@@ -1713,10 +1975,10 @@ class PlayerManager(
                     playbackQueue.append(nextTracks)
                     saveQueueState()
                     preResolveAndQueueUpcoming(playbackQueue.currentIndex.value)
-                    AppLogger.i(TAG, "BitChord AutoPlay enqueued ${nextTracks.size} tracks after '${currentItem.title}'")
+                    AppLogger.i(TAG, "BitChord AutoPlay enqueued ${nextTracks.size} tracks related to '${currentItem.title}'")
                 } else {
                     val single = effectiveRecommendationEngine.getNextRecommendedTrack(
-                        currentTrack = currentItem,
+                        currentTrack = effectiveItem,
                         activeQueue = playbackQueue.items.value
                     )
                     if (single != null) {
@@ -1724,9 +1986,13 @@ class PlayerManager(
                         saveQueueState()
                         preResolveAndQueueUpcoming(playbackQueue.currentIndex.value)
                         AppLogger.i(TAG, "Recommendation single-enqueued track: '${single.title}'")
+                    } else {
+                        // Allow retrying if candidates were not resolved yet
+                        lastAutoRecommendTriggeredSongId = -1L
                     }
                 }
             } catch (e: Exception) {
+                lastAutoRecommendTriggeredSongId = -1L
                 AppLogger.w(TAG, "Failed to load BitChord autoplay tracks", e)
             } finally {
                 autoplayLoadInProgress = false
@@ -1856,12 +2122,25 @@ class PlayerManager(
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-        lastMediaItemTransitionMs = SystemClock.elapsedRealtime()
+        val now = SystemClock.elapsedRealtime()
+        val timeSinceLastTransition = now - lastMediaItemTransitionMs
+        lastMediaItemTransitionMs = now
         AppLogger.i(TAG, "Track changed: songId=${mediaItem?.mediaId} reason=${transitionReasonName(reason)}")
-        reportPlayedTrack()
-        resetTrackTiming()
+        // Guard against duplicate zero-duration scrobble/skip reporting during crossfade handoff
+        if (timeSinceLastTransition > 1500L && currentTrackPlayedMs() > 2000L) {
+            reportPlayedTrack()
+            resetTrackTiming()
+        } else {
+            AppLogger.d(TAG, "Skipping duplicate/premature track reporting during rapid transition (${timeSinceLastTransition}ms)")
+        }
         // Play
         val newSongId = mediaItem?.mediaId?.toLongOrNull()
+        activeAutomixSongId = newSongId ?: -1L
+        activeAutomixPlan = null
+        activeAutomixNextSongId = -1L
+        isAnalyzingAutomix = false
+        isStandbyPreArmed = false
+        _automixStatus.value = AutomixStatus(isEnabled = automixEnabled)
         if (SystemClock.elapsedRealtime() - autoCrossfadeTriggeredTimeMs > 10_000L) {
             autoCrossfadeTriggeredSongId = -1L
             pendingAutoFadeMs = 0L
@@ -1977,10 +2256,13 @@ class PlayerManager(
     override fun onPlaybackStateChanged(playbackState: Int) {
         AppLogger.i(TAG, "Playback state changed: ${playbackStateName(playbackState)}")
         if (playbackState == Player.STATE_BUFFERING) {
-            _isLoading.value = true
-            progress.updatePlayingState(false)
+            if (!_isMixing.value) {
+                _isLoading.value = true
+                progress.updatePlayingState(false)
+            }
         } else if (playbackState == Player.STATE_READY) {
             _isLoading.value = false
+            releaseWakeLock()
             progress.updateDurationFromController()
             preloadUpcomingCovers(playbackQueue.currentIndex.value)
             preloadUpcomingLyrics(playbackQueue.currentIndex.value)
@@ -2208,6 +2490,14 @@ class PlayerManager(
                 videoId = atvResult.videoId,
                 album = atvResult.albumName ?: item.album
             )
+            val resolvedTrack = Track(
+                id = item.songId,
+                name = atvResult.title,
+                ar = listOf(Artist(id = 0L, name = atvResult.artist)),
+                al = Album(id = 0L, name = atvResult.albumName.orEmpty(), picUrl = preservedCover),
+                dt = atvResult.durationSec.toLong() * 1000L
+            )
+            YouTubeIdRegistry.updatePlaceholderTrack(item.songId, resolvedTrack, atvResult.videoId)
             YouTubeIdRegistry.register(
                 videoId = atvResult.videoId,
                 title = atvResult.title,
@@ -2324,8 +2614,15 @@ class PlayerManager(
 
             if (resolvedMediaItems.isNotEmpty()) {
                 withContext(Dispatchers.Main) {
-                    controllerHolder.syncUpcomingMediaItems(resolvedMediaItems)
-                    AppLogger.i(TAG, "[Playback] Added ${resolvedMediaItems.size} pre-resolved upcoming items to native ExoPlayer queue")
+                    if (canAutoCrossfade()) {
+                        // When Automix or Crossfade is enabled, standby player on Player 2 handles the transition.
+                        // Do not sync items into active player's native playlist to prevent premature single-player advancement!
+                        controllerHolder.clearUpcomingMediaItems()
+                        AppLogger.d(TAG, "Crossfade/Automix active: skipping native ExoPlayer single-playlist sync")
+                    } else {
+                        controllerHolder.syncUpcomingMediaItems(resolvedMediaItems)
+                        AppLogger.i(TAG, "[Playback] Added ${resolvedMediaItems.size} pre-resolved upcoming items to native ExoPlayer queue")
+                    }
                 }
             }
         }

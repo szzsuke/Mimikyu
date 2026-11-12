@@ -1,5 +1,17 @@
 package com.lin0721.linmusic.feature.player.ui
 
+import com.lin0721.linmusic.core.ui.theme.MimikyuPink
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.ui.graphics.Brush
+
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -41,7 +53,9 @@ fun ProgressSection(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier.padding(horizontal = MimikyuSpacing.lg),
     chorusStartMs: Long? = null,
-    isModern: Boolean = false
+    isModern: Boolean = false,
+    isMixing: Boolean = false,
+    transitionWindow: ClosedFloatingPointRange<Float>? = null
 ) {
     var isSeeking by remember { mutableStateOf(false) }
     // raw ，seekPosition  of
@@ -121,7 +135,7 @@ fun ProgressSection(
                 ),
             contentAlignment = Alignment.CenterStart
         ) {
-            // Track background
+            // 1. Inactive Track background
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -130,14 +144,62 @@ fun ProgressSection(
                     .background(Color.White.copy(alpha = 0.22f))
             )
 
-            // Played track
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress)
-                    .height(trackHeight)
-                    .clip(RoundedCornerShape(trackHeight / 2))
-                    .background(Color.White)
-            )
+            // 2. Automix transition window marker (BitChord style)
+            if (transitionWindow != null && trackWidthPx > 0f) {
+                val fromPx = trackWidthPx * transitionWindow.start.coerceIn(0f, 1f)
+                val toPx = trackWidthPx * transitionWindow.endInclusive.coerceIn(0f, 1f)
+                val windowWidthPx = toPx - fromPx
+                if (windowWidthPx > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .offset(x = with(density) { fromPx.toDp() })
+                            .width(with(density) { windowWidthPx.toDp() })
+                            .height(trackHeight)
+                            .clip(RoundedCornerShape(trackHeight / 2))
+                            .background(Color.White.copy(alpha = 0.40f))
+                    )
+                }
+            }
+
+            // 3. Played track fill (pulses during mix)
+            val filledFraction = if (isMixing && transitionWindow != null) {
+                progress.coerceAtLeast(transitionWindow.start).coerceIn(0f, 1f)
+            } else progress.coerceIn(0f, 1f)
+
+            if (isMixing) {
+                val infiniteTransition = rememberInfiniteTransition(label = "mixing_bar")
+                val pulseAlpha by infiniteTransition.animateFloat(
+                    initialValue = 0.70f,
+                    targetValue = 1.0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(650, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "pulseAlpha"
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(filledFraction)
+                        .height(trackHeight)
+                        .clip(RoundedCornerShape(trackHeight / 2))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color.White.copy(alpha = 0.95f),
+                                    MimikyuPink.copy(alpha = pulseAlpha)
+                                )
+                            )
+                        )
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(filledFraction)
+                        .height(trackHeight)
+                        .clip(RoundedCornerShape(trackHeight / 2))
+                        .background(Color.White)
+                )
+            }
 
             if (trackWidthPx > 0f && chorusFraction != null && progress < chorusFraction) {
                 val dotOffsetDp = with(density) {
@@ -163,24 +225,34 @@ fun ProgressSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             val displayPosition = if (isSeeking) (seekPosition * duration).toLong() else currentPosition
-            if (isModern) {
+            val remainingMs = (duration - displayPosition).coerceAtLeast(0L)
+
+            Text(
+                text = formatTime(displayPosition),
+                color = if (isModern) Color.White.copy(alpha = 0.65f) else TextGray,
+                fontSize = 13.sp
+            )
+
+            // BitChord Center "Mixing" text between timestamps
+            AnimatedVisibility(
+                visible = isMixing,
+                enter = fadeIn(tween(250)),
+                exit = fadeOut(tween(250))
+            ) {
                 Text(
-                    formatTime(displayPosition),
-                    color = Color.White.copy(alpha = 0.65f),
-                    fontSize = 12.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Normal
+                    text = "Mixing",
+                    color = MimikyuPink,
+                    fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    letterSpacing = 0.5.sp
                 )
-                val remainingMs = (duration - displayPosition).coerceAtLeast(0L)
-                Text(
-                    "-${formatTime(remainingMs)}",
-                    color = Color.White.copy(alpha = 0.65f),
-                    fontSize = 12.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Normal
-                )
-            } else {
-                Text(formatTime(displayPosition), color = TextGray, fontSize = 13.sp)
-                Text(formatTime(duration), color = TextGray, fontSize = 13.sp)
             }
+
+            Text(
+                text = "-${formatTime(remainingMs)}",
+                color = if (isModern) Color.White.copy(alpha = 0.65f) else TextGray,
+                fontSize = 13.sp
+            )
         }
     }
 }

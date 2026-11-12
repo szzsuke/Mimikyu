@@ -25,7 +25,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +68,7 @@ fun HomeScreen(
     onNavigateToRecentPlay: () -> Unit = {},
     onNavigateToLikedSongs: () -> Unit = {},
     onNavigateToDownloadedSongs: () -> Unit = {},
+    onNavigateToLibrary: () -> Unit = {},
     onLoginScreenVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -74,11 +77,15 @@ fun HomeScreen(
     val likedSongs by viewModel.likedSongs.collectAsStateWithLifecycle()
     val downloadPrefs: com.lin0721.linmusic.core.download.DownloadPreferences = org.koin.compose.koinInject()
     val downloadedRecords by downloadPrefs.records.collectAsStateWithLifecycle(initialValue = emptyList())
+    val spotifyRepository: com.lin0721.linmusic.core.spotify.SpotifyRepository = org.koin.compose.koinInject()
+    val spotifySession by spotifyRepository.sessionState.collectAsStateWithLifecycle()
+    val coroutineScope = rememberCoroutineScope()
     val currentUid = viewModel.currentUid ?: userProfile?.uid?.toString()
 
     var showLoginSheet by remember { mutableStateOf(false) }
     var showWebViewLogin by remember { mutableStateOf(false) }
     var showYouTubeMusicLogin by remember { mutableStateOf(false) }
+    var showSpotifyLogin by remember { mutableStateOf(false) }
 
     LaunchedEffect(showWebViewLogin, showYouTubeMusicLogin) {
         onLoginScreenVisibilityChanged(showWebViewLogin || showYouTubeMusicLogin)
@@ -236,8 +243,13 @@ fun HomeScreen(
                     onSongClick = { shelfTitle, songs, song -> viewModel.playShelfSong(shelfTitle, songs, song) },
                     onPlaylistClick = onPlaylistClick,
                     onNavigateToRecentPlay = onNavigateToRecentPlay,
+                    spotifySession = spotifySession,
                     onConnectSpotifyClick = {
-                        ToastManager.showToast("Spotify account linking setup")
+                        if (spotifySession.isAuthenticated) {
+                            onNavigateToLibrary()
+                        } else {
+                            showSpotifyLogin = true
+                        }
                     },
                     onConnectYouTubeMusicClick = {
                         showYouTubeMusicLogin = true
@@ -299,6 +311,20 @@ fun HomeScreen(
                 onLoginSuccess = { session ->
                     showYouTubeMusicLogin = false
                     viewModel.connectYouTubeAccount(session)
+                }
+            )
+        }
+
+        if (showSpotifyLogin) {
+            com.lin0721.linmusic.feature.library.ui.SpotifyLoginSheet(
+                onDismiss = { showSpotifyLogin = false },
+                onSuccess = { spDc, spKey ->
+                    showSpotifyLogin = false
+                    coroutineScope.launch {
+                        spotifyRepository.connectWithCookies(spDc, spKey).onSuccess {
+                            spotifyRepository.refreshProfile()
+                        }
+                    }
                 }
             )
         }

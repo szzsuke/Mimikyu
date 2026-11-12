@@ -77,6 +77,7 @@ fun HomeContent(
     onPlaylistClick: (Long, Boolean) -> Unit = { _, _ -> },
     onNavigateToRecentPlay: () -> Unit = {},
     onConnectSpotifyClick: () -> Unit = {},
+    spotifySession: com.lin0721.linmusic.core.spotify.SpotifySessionState? = null,
     onConnectYouTubeMusicClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
     isRefreshing: Boolean = false,
@@ -176,6 +177,15 @@ fun HomeContent(
                                 subtitle = if (!com.metrolist.innertube.YouTube.cookie.isNullOrBlank()) "Connected" else "Connect account",
                                 iconRes = R.drawable.ic_ytm_minimal,
                                 onClick = onConnectYouTubeMusicClick
+                            )
+                        }
+
+                        item(key = "connect_spotify") {
+                            BlankConnectPlaylistCard(
+                                title = "Spotify",
+                                subtitle = if (spotifySession?.isAuthenticated == true) "Connected • ${spotifySession.displayName}" else "Connect account",
+                                iconRes = R.drawable.ic_spotify_minimal,
+                                onClick = onConnectSpotifyClick
                             )
                         }
 

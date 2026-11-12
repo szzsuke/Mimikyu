@@ -220,4 +220,7 @@ val repositoryModule = module {
             auroraApiClient = getOrNull()
         )
     }
+
+    // Spotify repository for user playlists & library integration
+    single { com.lin0721.linmusic.core.spotify.SpotifyRepository(get()) }
 }

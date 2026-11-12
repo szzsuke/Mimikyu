@@ -62,7 +62,9 @@ fun LazyListScope.fullPlayerPlaybackSection(
     connectedDevice: AudioDeviceInfo? = null,
     onCurrentBitmapLoaded: ((android.graphics.Bitmap) -> Unit)? = null,
     fillGap: Dp? = null,
-    fillTail: Dp = 0.dp
+    fillTail: Dp = 0.dp,
+    isMixing: Boolean = false,
+    transitionWindow: ClosedFloatingPointRange<Float>? = null
 ) {
     fun fillGapItem(index: Int) {
         if (fillGap == null) return
@@ -134,7 +136,9 @@ fun LazyListScope.fullPlayerPlaybackSection(
             duration = displayDuration,
             onSeek = onSeek,
             chorusStartMs = songState.chorusStartMs,
-            isModern = false
+            isModern = false,
+            isMixing = isMixing,
+            transitionWindow = transitionWindow
         )
     }
 

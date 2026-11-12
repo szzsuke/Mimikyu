@@ -64,3 +64,20 @@ data class TrackAnalysis(
     val isAnalyzed: Boolean = false
 )
 
+/**
+ * Real-time Automix status exposed to UI and telemetry matching BitChord.
+ */
+data class AutomixStatus(
+    val isEnabled: Boolean = false,
+    val currentStatus: String = "analysed",
+    val nextStatus: String = "waiting",
+    val isAnalyzing: Boolean = false,
+    val isArmed: Boolean = false,
+    val isMixing: Boolean = false,
+    val currentBpm: Int = 0,
+    val nextBpm: Int = 0,
+    val transitionStyle: TransitionStyle = TransitionStyle.DJ_BLEND,
+    val timeUntilTransitionSec: Int = -1,
+    val displayText: String = "",
+    val transitionWindow: ClosedFloatingPointRange<Float>? = null
+)

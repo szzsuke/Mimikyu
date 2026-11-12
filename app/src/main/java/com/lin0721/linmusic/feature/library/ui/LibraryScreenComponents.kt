@@ -7,6 +7,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -323,6 +324,22 @@ fun LibraryItemRow(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+        } else if (item.id == "spotify_playlist") {
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .clip(RoundedCornerShape(RadiusCompact))
+                    .background(Color(0xFF18181A))
+                    .border(1.dp, Color(0xFF28282B), RoundedCornerShape(RadiusCompact)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_spotify_minimal),
+                    contentDescription = "Spotify",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(28.dp)
+                )
+            }
         } else if (item.id == "-2") {
             Box(
                 modifier = Modifier
@@ -436,6 +453,7 @@ fun LibraryGridItem(
         else -> {
             val isLikedSongs = item.isLikedSongs || item.id == "liked_songs" || item.title.equals("Liked Songs", ignoreCase = true)
             val isDownloadedSongs = item.isDownloadedSongs || item.id == "downloaded_songs" || item.title.equals("Downloaded Songs", ignoreCase = true)
+            val isSpotify = item.id == "spotify_playlist" || item.title.equals("Spotify", ignoreCase = true)
             val isDailyMix = item.title.startsWith("Daily Mix", ignoreCase = true)
             val dailyMixNum = Regex("""\d+""").find(item.title)?.value?.toIntOrNull() ?: 1
             val isGenreMix = item.title.endsWith("Mix", ignoreCase = true)
@@ -455,6 +473,7 @@ fun LibraryGridItem(
                 coverUrl = item.coverUrl,
                 isLikedSongs = isLikedSongs,
                 isDownloadedSongs = isDownloadedSongs,
+                isSpotify = isSpotify,
                 isDailyMix = isDailyMix,
                 dailyMixNumber = dailyMixNum,
                 isGenreMix = isGenreMix,

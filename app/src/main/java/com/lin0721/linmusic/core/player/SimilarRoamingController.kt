@@ -54,6 +54,7 @@ class SimilarRoamingController(
 
     // PlayQueue
     suspend fun onProgressTick(songId: Long, remainingMs: Long) {
+        if (!isRoaming) return
         val curIdx = queue.currentIndex.value
         if (curIdx != queue.size - 1) return
         if (remainingMs > PREFETCH_THRESHOLD_MS) return
@@ -61,7 +62,6 @@ class SimilarRoamingController(
         if (!settingsPreferences.autoPlayNext.first()) return
 
         lastTriggeredSongId = songId
-        queue.setPlayContext(CONTEXT_ROAMING)
         appendSimilarSongs(songId, curIdx)
     }
 
@@ -86,7 +86,7 @@ class SimilarRoamingController(
                             coverUrl = track.al.picUrl
                         )
                     }
-                    queue.appendAfter(index, simiItems)
+                    queue.append(simiItems)
                     stateStore.saveQueue(queue)
                 }
             }.onFailure {

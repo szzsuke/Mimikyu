@@ -1,5 +1,7 @@
 package com.lin0721.linmusic.feature.player.ui
 
+import com.lin0721.linmusic.core.player.automix.AutomixStatus
+
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -862,6 +864,8 @@ class PlayerViewModel(
         playerManager.seekTo(timeMs)
     }
 
+    val isMixing: StateFlow<Boolean> = playerManager.isMixing
+    val automixStatus: StateFlow<AutomixStatus> = playerManager.automixStatus
     val sleepTimerRemaining: StateFlow<Long> = playerManager.sleepTimerRemaining
 
     fun setSleepTimer(minutes: Int) {
@@ -951,5 +955,8 @@ class PlayerViewModel(
     // ClearPlayQueue
     fun clearQueue() {
         playerManager.clearQueue()
+    }
+    fun toggleAutomix() {
+        playerManager.toggleAutomix()
     }
 }

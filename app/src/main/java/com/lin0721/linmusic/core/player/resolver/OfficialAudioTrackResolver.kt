@@ -108,7 +108,11 @@ object OfficialAudioTrackResolver {
             AppLogger.i(TAG, "Resolving canonical ATV audio track for '$query' (rawVid=$cleanVid)")
 
             val searchResult = YouTube.search(query, YouTube.SearchFilter.FILTER_SONG).getOrNull()
-            val songItems = searchResult?.items?.filterIsInstance<SongItem>().orEmpty()
+            val rawItems = searchResult?.items.orEmpty()
+            val songItems = rawItems.filterIsInstance<SongItem>().ifEmpty {
+                val fallbackRes = YouTube.search(cleanT, YouTube.SearchFilter.FILTER_SONG).getOrNull()
+                fallbackRes?.items?.filterIsInstance<SongItem>().orEmpty()
+            }
 
             if (songItems.isEmpty()) {
                 AppLogger.w(TAG, "No ATV song items found for query '$query'")
@@ -133,26 +137,14 @@ object OfficialAudioTrackResolver {
 
             val pool = if (filtered.isNotEmpty()) filtered else songItems
 
-            // Best match ranking:
-            // 1. Closest duration match if current duration is known (> 30s)
-            // 2. Contains primary artist name
-            // 3. Official album presence
-            val primaryArtist = cleanA.split(",", "/", "&").firstOrNull()?.trim()?.lowercase().orEmpty()
-            val candidate = pool.minByOrNull { song ->
-                var penalty = 0
-                val songDur = song.duration ?: 0
-                if (currentDurationSec > 30 && songDur > 30) {
-                    penalty += abs(songDur - currentDurationSec)
-                }
-                val artistMatches = song.artists.any { it.name.lowercase().contains(primaryArtist) }
-                if (!artistMatches && primaryArtist.isNotBlank()) {
-                    penalty += 100
-                }
-                if (song.album == null) {
-                    penalty += 30
-                }
-                penalty
-            } ?: pool.first()
+            val parsedTarget = com.lin0721.linmusic.core.importer.ParsedTrackInfo(
+                title = cleanT,
+                artist = cleanA,
+                durationMs = currentDurationSec.toLong() * 1000L
+            )
+            val matchChoice = com.lin0721.linmusic.core.importer.TrackMatcher.selectBestSong(parsedTarget, pool)
+
+            val candidate = matchChoice.selected ?: pool.first()
 
             val atvVideoId = candidate.id
             val (cleanCandidateTitle, cleanCandidateArtist) = com.lin0721.linmusic.core.metadata.extractCleanTitleAndArtist(

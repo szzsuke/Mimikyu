@@ -11,6 +11,8 @@ import com.lin0721.linmusic.core.log.AppLogger
 import java.nio.ByteOrder
 import kotlin.coroutines.coroutineContext
 import kotlin.math.log10
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -18,21 +20,17 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "TrackEdgeAnalyzer"
-private const val TAIL_SPAN_MS = 15_000L
-private const val HEAD_SPAN_MS = 6_000L
-// 15
+private const val TAIL_SPAN_MS = 30_000L
+private const val HEAD_SPAN_MS = 12_000L
 private const val ANALYSIS_TIMEOUT_MS = 20_000L
 private const val CODEC_TIMEOUT_US = 10_000L
 
-// 100ms  of
+/** 100ms loudness window */
 data class LoudnessWindow(val startMs: Long, val dbfs: Double)
 
-// ， and
 object TrackEdges {
     const val WINDOW_MS = 100L
     const val AUDIBLE_DBFS = -45.0
-
-    // ，
     private const val HEAD_PADDING_MS = 100L
 
     fun dbfs(sumSquares: Double, sampleCount: Long): Double {
@@ -40,18 +38,77 @@ object TrackEdges {
         return 20 * log10(sqrt(sumSquares / sampleCount))
     }
 
+    /** Find end of content excluding trailing silence */
     fun effectiveEndMs(windows: List<LoudnessWindow>): Long? =
         windows.lastOrNull { it.dbfs > AUDIBLE_DBFS }?.let { it.startMs + WINDOW_MS }
 
+    /** Find start of audible sound excluding leading silence */
     fun effectiveStartMs(windows: List<LoudnessWindow>): Long? =
         windows.firstOrNull { it.dbfs > AUDIBLE_DBFS }?.let { (it.startMs - HEAD_PADDING_MS).coerceAtLeast(0L) }
+
+    /**
+     * Detects where the musical outro / fadeout starts in the last 30s.
+     *
+     * Identifies energy drops (fadeout, breakdown, outro drop) so that Automix
+     * starts blending at the natural musical conclusion of the song rather than
+     * at an arbitrary fixed second before the file ends.
+     */
+    fun detectOutroStartMs(windows: List<LoudnessWindow>, contentEndMs: Long, durationMs: Long): Long {
+        if (windows.isEmpty() || contentEndMs <= 0L) {
+            return (contentEndMs - 16_000L).coerceAtLeast(0L)
+        }
+
+        val audible = windows.filter { it.dbfs > AUDIBLE_DBFS && it.startMs < contentEndMs }
+        if (audible.size < 20) {
+            // Less than 2 seconds of audible audio in tail
+            return (contentEndMs - 16_000L).coerceAtLeast(0L)
+        }
+
+        // 1. Reference loudness from the first half of the tail (when song is still going)
+        val earlyAudible = audible.take((audible.size * 0.45).toInt().coerceAtLeast(5))
+        val referenceDbfs = earlyAudible.map { it.dbfs }.sorted().let {
+            it[(it.size * 0.75).toInt()]
+        }
+
+        // 2. Scan forward for a sustained drop of >= 5.0 dB below reference
+        // (perceived volume drops by ~40%, signifying fadeout or outro breakdown)
+        val dropThreshold = referenceDbfs - 5.0
+        var sustainedDropStart: Long? = null
+        var dropCount = 0
+
+        for (w in audible) {
+            if (w.dbfs <= dropThreshold) {
+                if (sustainedDropStart == null) sustainedDropStart = w.startMs
+                dropCount++
+            } else {
+                // Volume bounced back up
+                if (dropCount < 15) { // less than 1.5s of sustained drop
+                    sustainedDropStart = null
+                    dropCount = 0
+                }
+            }
+        }
+
+        val detectedOutro = if (dropCount >= 15 && sustainedDropStart != null) {
+            sustainedDropStart
+        } else {
+            // No gradual fadeout detected; song plays at full energy until ending.
+            // Musical phrase mix-out: start 16 seconds (32 beats @ 120bpm) before content end.
+            contentEndMs - 16_000L
+        }
+
+        // Clamp to a safe musical window: between 30s before end and 8s before end
+        val minOutro = (contentEndMs - 28_000L).coerceAtLeast(0L)
+        val maxOutro = (contentEndMs - 8_000L).coerceAtLeast(0L)
+        return detectedOutro.coerceIn(minOutro, maxOutro)
+    }
 }
 
-// Songs， of  and ；Back null，
 class TrackEdgeAnalyzer(private val context: Context) {
 
-    private val endCache = LruCache<String, Long>(32)
-    private val startCache = LruCache<String, Long>(32)
+    private val endCache = LruCache<String, Long>(64)
+    private val startCache = LruCache<String, Long>(64)
+    private val outroCache = LruCache<String, Long>(64)
 
     suspend fun effectiveEndMs(key: String, uri: String, durationMs: Long): Long? {
         endCache.get(key)?.let { return it }
@@ -66,11 +123,25 @@ class TrackEdgeAnalyzer(private val context: Context) {
         return TrackEdges.effectiveStartMs(windows)?.also { startCache.put(key, it) }
     }
 
+    suspend fun detectOutroStartMs(key: String, uri: String, durationMs: Long, contentEndMs: Long): Long {
+        outroCache.get(key)?.let { return it }
+        if (durationMs <= 0L) return (durationMs - 16_000L).coerceAtLeast(0L)
+        val windows = decodeWindows(uri, (durationMs - TAIL_SPAN_MS).coerceAtLeast(0L), Long.MAX_VALUE)
+        val outro = if (windows != null) {
+            TrackEdges.detectOutroStartMs(windows, contentEndMs, durationMs)
+        } else {
+            (contentEndMs - 16_000L).coerceAtLeast(0L)
+        }
+        outroCache.put(key, outro)
+        return outro
+    }
+
     private suspend fun decodeWindows(uri: String, fromMs: Long, toMs: Long): List<LoudnessWindow>? =
         withContext(Dispatchers.IO) {
-            withTimeoutOrNull(ANALYSIS_TIMEOUT_MS) {
+            val timeout = if (uri.startsWith("http")) 3000L else ANALYSIS_TIMEOUT_MS
+            withTimeoutOrNull(timeout) {
                 runCatching { decode(uri, fromMs, toMs) }
-                    .onFailure { AppLogger.w(TAG, "Trim analysis failed: from=$fromMs", it) }
+                    .onFailure { AppLogger.w(TAG, "Edge decode failed from=$fromMs to=$toMs: ${it.message}") }
                     .getOrNull()
             }
         }
@@ -171,7 +242,6 @@ class TrackEdgeAnalyzer(private val context: Context) {
         private var count = 0L
 
         fun add(timeMs: Long, meanSquare: Double) {
-            // ， of
             if (timeMs < fromMs || timeMs > toMs) return
             val start = timeMs / TrackEdges.WINDOW_MS * TrackEdges.WINDOW_MS
             if (start != windowStartMs) {

@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalFocusManager
@@ -119,8 +120,7 @@ fun SearchScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
+            .background(Color(0xFF121212))
     ) {
         SearchTopBar(
             mode = mode,
@@ -169,6 +169,7 @@ fun SearchScreen(
                         recentItems = recentItems,
                         currentTrackId = currentTrack?.mediaId,
                         isPlaying = isPlaying,
+                        likedSongIds = likedSongIds,
                         onSubmitKeyword = viewModel::searchWithKeyword,
                         onFillQuery = viewModel::updateQuery,
                         onArtistClick = onArtistClick,
@@ -179,6 +180,9 @@ fun SearchScreen(
                         onAddSongToLibrary = { songId ->
                             collectSongId = songId
                             viewModel.prepareCollectDialog(songId)
+                        },
+                        onOpenMoreOptions = { track ->
+                            if (userProfile == null) showLoginSheet = true else optionsTrack = track
                         },
                         onRemoveRecentItem = viewModel::removeRecentItem,
                         onClearRecentItems = viewModel::clearHistory
